@@ -50,7 +50,8 @@ async function closeCurrentTab() {
   }
 }
 
-async function sendStage2Action(action, domain, sourceTabId) {
+async function sendStage2Action(action, domain, sourceTabId, options = {}) {
+  const closeOnSuccess = options.closeOnSuccess !== false;
   const response = await chrome.runtime.sendMessage({
     type: "STAGE2_NUDGE_ACTION",
     action,
@@ -64,7 +65,9 @@ async function sendStage2Action(action, domain, sourceTabId) {
   }
 
   setStatus(response.message || "Action completed.");
-  await closeCurrentTab();
+  if (closeOnSuccess && !response.actionFailed) {
+    await closeCurrentTab();
+  }
 }
 
 function renderStage2Nudge(site, sourceTabId) {
@@ -82,7 +85,7 @@ function renderStage2Nudge(site, sourceTabId) {
   nudgeActions.classList.remove("hidden");
 
   takeBreakBtn.addEventListener("click", () => {
-    sendStage2Action("break_5", site, sourceTabId).catch((error) => {
+    sendStage2Action("break_5", site, sourceTabId, { closeOnSuccess: false }).catch((error) => {
       setStatus(error?.message || "Action failed.", true);
     });
   });

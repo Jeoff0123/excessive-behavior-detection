@@ -37,6 +37,7 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - Stage 2 nudge shown once per session
   - Snooze is a per-domain cross-session suppression window (10 minutes)
   - Take a 5-minute break pauses the current session and starts a return window
+  - Return is user-driven activity (interaction or tab switch), not automatic redirect
   - If no valid browsing activity returns within 10 minutes after break, session ends with `break_no_return_10m`
   - If the user returns during that window, a new session starts
   - Stage 3 auto-cooldown

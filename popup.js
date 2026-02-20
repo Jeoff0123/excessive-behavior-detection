@@ -14,7 +14,14 @@ const clearTodayBtn = document.getElementById("clearTodayBtn");
 const exportBtn = document.getElementById("exportBtn");
 const clearDataBtn = document.getElementById("clearDataBtn");
 
+function hasExtensionRuntime() {
+  return typeof chrome !== "undefined" && Boolean(chrome?.runtime?.id);
+}
+
 function setStatus(text, isError = false) {
+  if (!statusText) {
+    return;
+  }
   statusText.textContent = text;
   statusText.style.color = isError ? "#9c2a17" : "#61584b";
 }
@@ -58,7 +65,14 @@ function formatCounterStatus(reason, isActive) {
 }
 
 async function send(type, payload = {}) {
-  return chrome.runtime.sendMessage({ type, ...payload });
+  if (!hasExtensionRuntime()) {
+    return { ok: false, error: "Extension context unavailable. Open this from the extension popup." };
+  }
+  try {
+    return await chrome.runtime.sendMessage({ type, ...payload });
+  } catch (error) {
+    return { ok: false, error: error?.message || "Failed to contact background service worker." };
+  }
 }
 
 async function refresh() {
@@ -81,7 +95,7 @@ async function refresh() {
   counterStatusText.textContent = formatCounterStatus(data.countStatusReason, data.countStatusActive);
 }
 
-trackingToggle.addEventListener("change", async () => {
+trackingToggle?.addEventListener("change", async () => {
   const res = await send("SET_TRACKING", { enabled: trackingToggle.checked });
   if (!res?.ok) {
     setStatus(res?.error || "Failed to change tracking.", true);
@@ -91,7 +105,7 @@ trackingToggle.addEventListener("change", async () => {
   await refresh();
 });
 
-debugToggle.addEventListener("change", async () => {
+debugToggle?.addEventListener("change", async () => {
   const res = await send("SET_DEBUG", { enabled: debugToggle.checked });
   if (!res?.ok) {
     setStatus(res?.error || "Failed to change debug mode.", true);
@@ -101,7 +115,7 @@ debugToggle.addEventListener("change", async () => {
   await refresh();
 });
 
-simulateBtn.addEventListener("click", async () => {
+simulateBtn?.addEventListener("click", async () => {
   const res = await send("DEBUG_SIMULATE_10_MIN");
   if (!res?.ok) {
     setStatus(res?.error || "Failed debug simulation.", true);
@@ -111,7 +125,7 @@ simulateBtn.addEventListener("click", async () => {
   await refresh();
 });
 
-endSessionBtn.addEventListener("click", async () => {
+endSessionBtn?.addEventListener("click", async () => {
   const res = await send("DEBUG_END_SESSION");
   if (!res?.ok) {
     setStatus(res?.error || "Failed to end session.", true);
@@ -121,7 +135,7 @@ endSessionBtn.addEventListener("click", async () => {
   await refresh();
 });
 
-clearTodayBtn.addEventListener("click", async () => {
+clearTodayBtn?.addEventListener("click", async () => {
   const res = await send("DEBUG_CLEAR_TODAY_DOMAIN");
   if (!res?.ok) {
     setStatus(res?.error || "Failed to clear today total.", true);
@@ -131,7 +145,7 @@ clearTodayBtn.addEventListener("click", async () => {
   await refresh();
 });
 
-exportBtn.addEventListener("click", async () => {
+exportBtn?.addEventListener("click", async () => {
   const res = await send("EXPORT_CSV");
   if (!res?.ok) {
     setStatus(res?.error || "Export failed.", true);
@@ -148,7 +162,7 @@ exportBtn.addEventListener("click", async () => {
   setStatus("CSV exported.");
 });
 
-clearDataBtn.addEventListener("click", async () => {
+clearDataBtn?.addEventListener("click", async () => {
   const confirmed = confirm("Clear all extension data and cooldown rules?");
   if (!confirmed) {
     return;
@@ -164,9 +178,13 @@ clearDataBtn.addEventListener("click", async () => {
   await refresh();
 });
 
-refresh().catch((error) => setStatus(error?.message || "Failed to initialize popup.", true));
-setInterval(() => {
-  refresh().catch(() => {
-    // Keep popup responsive even when background state temporarily fails.
-  });
-}, 1000);
+if (!hasExtensionRuntime()) {
+  setStatus("Extension context unavailable. Open this from the browser extension popup.", true);
+} else {
+  refresh().catch((error) => setStatus(error?.message || "Failed to initialize popup.", true));
+  setInterval(() => {
+    refresh().catch(() => {
+      // Keep popup responsive even when background state temporarily fails.
+    });
+  }, 1000);
+}

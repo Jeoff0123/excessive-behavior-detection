@@ -396,6 +396,8 @@ async function startSessionFromTab(tab) {
     revisitCount,
     stage2PromptShown: false,
     stage2Choice: null,
+    stage2ActionFailed: false,
+    stage2FailReason: null,
     snoozeMinutes: null,
     snoozeUntil: null,
     breakTriggered: false,
@@ -565,6 +567,8 @@ async function endSession(endReason) {
       finalLabel: provisional.provisionalLabel,
       labelSource: "hybrid_skipped",
       stage2Choice: currentSession.stage2Choice,
+      stage2ActionFailed: Boolean(currentSession.stage2ActionFailed),
+      stage2FailReason: currentSession.stage2FailReason || null,
       snoozeMinutes: currentSession.snoozeMinutes,
       snoozeUntil: currentSession.snoozeUntil,
       breakTriggered: Boolean(currentSession.breakTriggered),
@@ -613,10 +617,11 @@ async function syncToActiveTab(tab, source = "unknown") {
   if (currentSession?.awaitingReturnAfterBreak) {
     const now = Date.now();
     const returnDeadline = Number(currentSession.breakReturnDeadline || 0);
+    const resumedByUser = source === "activity" || source === "tab_switch";
 
     if (returnDeadline > 0 && now > returnDeadline) {
       await endSession("break_no_return_10m");
-    } else if (isTrackableUrl(tab.url || "")) {
+    } else if (resumedByUser && isTrackableUrl(tab.url || "")) {
       await endSession("break_resumed_new_session");
       await startSessionFromTab(tab);
       return;
@@ -1075,33 +1080,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const action = String(message.action || "");
       const domain = (message.domain && String(message.domain).toLowerCase()) || null;
       const sourceTabId = Number(message.sourceTabId || 0);
+      const senderTabId = Number(sender?.tab?.id || 0);
 
       if (!domain) {
         sendResponse({ ok: false, error: "Missing domain." });
         return;
       }
 
-      if (currentSession && currentSession.domain === domain) {
-        if (action === "break_5") {
-          currentSession.stage2Choice = "break_5";
-          currentSession.breakTriggered = true;
-          currentSession.breakType = "user_initiated";
-          currentSession.breakDurationSec = 300;
-        } else if (action === "snooze") {
-          currentSession.stage2Choice = "snooze";
-          currentSession.snoozeMinutes = SNOOZE_MINUTES;
-        } else if (action === "close_tab") {
-          currentSession.stage2Choice = "close_tab";
-        }
-        await persistCurrentSession();
-      }
-
       if (action === "break_5") {
         let targetTabId = sourceTabId;
         let actionFailed = false;
         let failReason = null;
+        let until = 0;
 
-        if (!targetTabId && currentSession?.domain === domain) {
+        if (targetTabId && senderTabId && targetTabId === senderTabId) {
+          targetTabId = 0;
+        }
+
+        if (!targetTabId && currentSession?.domain === domain && currentSession.tabId !== senderTabId) {
           targetTabId = currentSession.tabId;
         }
 
@@ -1109,37 +1105,58 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           actionFailed = true;
           failReason = "no_valid_target_tab";
           console.debug("Stage2 break skipped: no valid target tab.", { domain, sourceTabId });
-          await updateActionBadge();
-          sendResponse({
-            ok: true,
-            message: "Action completed.",
-            actionFailed,
-            failReason
-          });
-          return;
         }
 
-        const until = await blockSite(domain, 5 * 60 * 1000);
-        try {
-          const redirect = chrome.runtime.getURL(
-            `blocked.html?mode=cooldown&domain=${encodeURIComponent(domain)}&site=${encodeURIComponent(domain)}&until=${encodeURIComponent(String(until))}`
-          );
-          await chrome.tabs.update(targetTabId, { url: redirect });
+        if (targetTabId) {
+          try {
+            const targetTab = await chrome.tabs.get(targetTabId);
+            const targetDomain = getDomain(targetTab?.url || "");
+            const domainMatches =
+              targetDomain &&
+              (matchBlockedDomain(targetDomain, domain) || matchBlockedDomain(domain, targetDomain));
+            if (!domainMatches) {
+              actionFailed = true;
+              failReason = "no_valid_target_tab";
+              targetTabId = 0;
+            }
+          } catch (_error) {
+            actionFailed = true;
+            failReason = "no_valid_target_tab";
+            targetTabId = 0;
+          }
+        }
 
-          if (currentSession && currentSession.domain === domain) {
+        if (targetTabId) {
+          until = await blockSite(domain, 5 * 60 * 1000);
+          try {
+            const redirect = chrome.runtime.getURL(
+              `blocked.html?mode=cooldown&domain=${encodeURIComponent(domain)}&site=${encodeURIComponent(domain)}&until=${encodeURIComponent(String(until))}`
+            );
+            await chrome.tabs.update(targetTabId, { url: redirect });
+          } catch (_error) {
+            await clearDomainCooldown(domain);
+            actionFailed = true;
+            failReason = "no_valid_target_tab";
+            console.debug("Stage2 break skipped: target tab update failed.", {
+              domain,
+              targetTabId
+            });
+          }
+        }
+
+        if (currentSession && currentSession.domain === domain) {
+          currentSession.stage2Choice = "break_5";
+          currentSession.stage2ActionFailed = actionFailed;
+          currentSession.stage2FailReason = failReason;
+          currentSession.breakTriggered = !actionFailed;
+          currentSession.breakType = actionFailed ? null : "user_initiated";
+          currentSession.breakDurationSec = actionFailed ? null : 300;
+          if (!actionFailed) {
             currentSession.awaitingReturnAfterBreak = true;
             currentSession.breakCooldownUntil = until;
             currentSession.breakReturnDeadline = until + BREAK_RETURN_WINDOW_MS;
-            await persistCurrentSession();
           }
-        } catch (_error) {
-          await clearDomainCooldown(domain);
-          actionFailed = true;
-          failReason = "no_valid_target_tab";
-          console.debug("Stage2 break skipped: target tab update failed.", {
-            domain,
-            targetTabId
-          });
+          await persistCurrentSession();
         }
 
         await updateActionBadge();
@@ -1155,7 +1172,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (action === "snooze") {
         const snoozeUntil = await setSnooze(domain, SNOOZE_MINUTES);
         if (currentSession && currentSession.domain === domain) {
+          currentSession.stage2Choice = "snooze";
+          currentSession.stage2ActionFailed = false;
+          currentSession.stage2FailReason = null;
           currentSession.snoozeUntil = snoozeUntil;
+          currentSession.snoozeMinutes = SNOOZE_MINUTES;
           await persistCurrentSession();
         }
         await updateActionBadge();
@@ -1167,14 +1188,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         let targetTabId = sourceTabId;
         let actionFailed = false;
         let failReason = null;
-        if (!targetTabId && currentSession?.domain === domain) {
+        if (targetTabId && senderTabId && targetTabId === senderTabId) {
+          targetTabId = 0;
+        }
+        if (!targetTabId && currentSession?.domain === domain && currentSession.tabId !== senderTabId) {
           targetTabId = currentSession.tabId;
+        }
+
+        if (targetTabId) {
+          try {
+            const targetTab = await chrome.tabs.get(targetTabId);
+            const targetDomain = getDomain(targetTab?.url || "");
+            const domainMatches =
+              targetDomain &&
+              (matchBlockedDomain(targetDomain, domain) || matchBlockedDomain(domain, targetDomain));
+            if (!domainMatches) {
+              actionFailed = true;
+              failReason = "no_valid_target_tab";
+              targetTabId = 0;
+            }
+          } catch (_error) {
+            actionFailed = true;
+            failReason = "no_valid_target_tab";
+            targetTabId = 0;
+          }
         }
 
         if (!targetTabId) {
           actionFailed = true;
-          failReason = "no_valid_target_tab";
+          failReason = failReason || "no_valid_target_tab";
           console.debug("Stage2 close_tab skipped: no valid target tab.", { domain, sourceTabId });
+        }
+
+        if (currentSession && currentSession.domain === domain) {
+          currentSession.stage2Choice = "close_tab";
+          currentSession.stage2ActionFailed = actionFailed;
+          currentSession.stage2FailReason = failReason;
+          await persistCurrentSession();
         }
 
         sendResponse({

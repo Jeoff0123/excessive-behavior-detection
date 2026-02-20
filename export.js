@@ -1,5 +1,5 @@
 const CSV_HEADER =
-  "sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,stage,riskLevel,provisionalLabel,provisionalScore,finalLabel,labelSource,stage2Choice,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop";
+  "sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,stage,riskLevel,provisionalLabel,provisionalScore,finalLabel,labelSource,stage2Choice,stage2ActionFailed,stage2FailReason,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop";
 
 function csvEscape(value) {
   if (value === null || value === undefined) {
@@ -31,6 +31,8 @@ export function exportSessionsCsv(sessions) {
       s.finalLabel,
       s.labelSource,
       s.stage2Choice,
+      s.stage2ActionFailed,
+      s.stage2FailReason,
       s.snoozeMinutes,
       s.breakTriggered,
       s.breakDurationSec,
