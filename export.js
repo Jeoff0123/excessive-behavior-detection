@@ -1,5 +1,5 @@
 const CSV_HEADER =
-  "sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,stage,riskLevel,provisionalLabel,provisionalScore,finalLabel,labelSource,stage2Choice,stage2ActionFailed,stage2FailReason,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop";
+  "sessionSchemaVersion,sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,revisitCountMode,stage,riskLevel,idleTimeoutMinUsed,provisionalLabel,provisionalScore,finalLabel,labelSource,labelConfidence,promptSkipped,stage2Choice,stage2ActionFailed,stage2FailReason,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop";
 
 function csvEscape(value) {
   if (value === null || value === undefined) {
@@ -15,6 +15,7 @@ function csvEscape(value) {
 export function exportSessionsCsv(sessions) {
   const lines = sessions.map((s) =>
     [
+      s.sessionSchemaVersion ?? 1,
       s.sessionId,
       s.domain,
       s.startTime,
@@ -24,12 +25,16 @@ export function exportSessionsCsv(sessions) {
       s.scrollCount,
       s.tabSwitchCount,
       s.revisitCount,
+      s.revisitCountMode || "binary_daily_seen",
       s.stage,
       s.riskLevel,
+      s.idleTimeoutMinUsed,
       s.provisionalLabel,
       s.provisionalScore,
       s.finalLabel,
       s.labelSource,
+      s.labelConfidence,
+      s.promptSkipped,
       s.stage2Choice,
       s.stage2ActionFailed,
       s.stage2FailReason,

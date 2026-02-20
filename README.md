@@ -28,14 +28,18 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - Stage 3-4 -> High
 - Session ends:
   - tab closed
-  - idle 5 minutes
+  - idle timeout (`idle_timeout`, configurable: 3/5/10 minutes, default 5)
   - forced end (switch/navigation/debug)
   - break return window expired (`break_no_return_10m`)
+- Revisit signal:
+  - `revisitCount` stores prior visits to the same domain on the same day (frequency-style)
+  - export includes `revisitCountMode` and `sessionSchemaVersion` for dataset compatibility
 - Interventions:
   - Stage 1 notification once/domain/day
   - Stage 2 notification + blocked-page nudge
   - Stage 2 nudge shown once per session
   - Snooze is a per-domain cross-session suppression window (10 minutes)
+  - Snooze cap: max 3 snoozes per domain per hour
   - Take a 5-minute break pauses the current session and starts a return window
   - Return is user-driven activity (interaction or tab switch), not automatic redirect
   - If no valid browsing activity returns within 10 minutes after break, session ends with `break_no_return_10m`
@@ -43,9 +47,10 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - Stage 3 auto-cooldown
   - Stage 4 auto-cooldown (10 minutes)
 - End-session questions:
-  - shown only when a session ends by `tab_closed` or `idle_5min`
+  - shown only when a session ends by `tab_closed` or `idle_timeout`
   - shown only for Medium/High risk (or `provisionalLabel >= Medium`)
   - shown once per session
+  - sessions store `labelConfidence` (`pending_prompt`, `confirmed`, `adjusted`, `skipped`, `rule_only`) and `promptSkipped`
 - Cooldown enforcement:
   - `tabs.onUpdated` redirect checks to `blocked.html`
 
@@ -61,6 +66,7 @@ Enable `Debug Mode` to reveal:
 
 - Data is stored in `chrome.storage.local` on-device.
 - No backend/server upload is used.
+- Session `url` is minimized to origin only (`scheme://host`) to avoid storing path/query content.
 - You can pause collection with Tracking OFF and remove records with Clear Data.
 
 ## Positioning

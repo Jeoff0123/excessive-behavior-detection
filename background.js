@@ -12,12 +12,17 @@ import { exportSessionsCsv } from "./export.js";
 
 const ALARM_TICK = "tick_30s";
 const TICK_INTERVAL_MIN = 0.5;
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_IDLE_TIMEOUT_MIN = 5;
+const IDLE_TIMEOUT_OPTIONS_MIN = [3, 5, 10];
 const DEFAULT_COOLDOWN_MS = 10 * 60 * 1000;
 const MAX_SESSIONS = 200;
 const ICON_FILE = "icon.png";
 const SNOOZE_MINUTES = 10;
+const SNOOZE_LIMIT_PER_HOUR = 3;
+const SNOOZE_WINDOW_MS = 60 * 60 * 1000;
 const BREAK_RETURN_WINDOW_MS = 10 * 60 * 1000;
+const SESSION_SCHEMA_VERSION = 2;
+const END_REASON_IDLE = "idle_timeout";
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_COLOR_BY_STAGE = {
   0: "#64748b",
@@ -47,11 +52,42 @@ function getDomain(url) {
   return host.startsWith("www.") ? host.slice(4) : host;
 }
 
+function getTrackableOrigin(url) {
+  if (!isTrackableUrl(url)) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.hostname.toLowerCase()}`;
+  } catch (_error) {
+    return null;
+  }
+}
+
 function makeSessionId() {
   if (globalThis.crypto?.randomUUID) {
     return crypto.randomUUID();
   }
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function sanitizeIdleTimeoutMin(value) {
+  const asNumber = Number(value);
+  if (IDLE_TIMEOUT_OPTIONS_MIN.includes(asNumber)) {
+    return asNumber;
+  }
+  return DEFAULT_IDLE_TIMEOUT_MIN;
+}
+
+function getIdleTimeoutMs(state) {
+  return sanitizeIdleTimeoutMin(state?.idleTimeoutMin) * 60 * 1000;
+}
+
+function formatMsToMinSec(ms) {
+  const totalSec = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return `${min}m ${sec}s`;
 }
 
 function normalize(value, cap) {
@@ -113,8 +149,17 @@ function computeHybridFinal(provisionalLabel, q1LongerThanIntended, q2HardToStop
   };
 }
 
+function normalizeVisitCount(value) {
+  const n = Number(value);
+  if (Number.isFinite(n) && n >= 0) {
+    return Math.floor(n);
+  }
+  return value ? 1 : 0;
+}
+
 function shouldShowEndSessionQuestions(state, endReason, riskLevel, provisionalLabel) {
-  const endedNaturally = endReason === "tab_closed" || endReason === "idle_5min";
+  const endedNaturally =
+    endReason === "tab_closed" || endReason === END_REASON_IDLE || endReason === "idle_5min";
   const mediumOrHigher = riskLevel >= MEDIUM || provisionalLabel >= MEDIUM;
   return Boolean(state.trackingEnabled && endedNaturally && mediumOrHigher);
 }
@@ -176,6 +221,48 @@ async function setSnooze(domain, minutes) {
   return until;
 }
 
+async function applySnoozeWithCap(domain, minutes) {
+  const state = await getState();
+  ensureDailyState(state);
+  const now = Date.now();
+  const cutoff = now - SNOOZE_WINDOW_MS;
+  const existing = Array.isArray(state.snoozeHistory?.[domain]) ? state.snoozeHistory[domain] : [];
+  const recent = existing
+    .map((value) => Number(value || 0))
+    .filter((ts) => Number.isFinite(ts) && ts > cutoff && ts <= now + 1000)
+    .sort((a, b) => a - b);
+
+  if (recent.length >= SNOOZE_LIMIT_PER_HOUR) {
+    state.snoozeHistory[domain] = recent;
+    await patchState({
+      [STORAGE_KEYS.snoozeHistory]: state.snoozeHistory,
+      [STORAGE_KEYS.lastResetDate]: state.lastResetDate
+    });
+    const waitMs = Math.max(0, recent[0] + SNOOZE_WINDOW_MS - now);
+    return {
+      allowed: false,
+      count: recent.length,
+      waitMs
+    };
+  }
+
+  recent.push(now);
+  state.snoozeHistory[domain] = recent;
+  const until = now + minutes * 60 * 1000;
+  state.snoozes[domain] = until;
+  await patchState({
+    [STORAGE_KEYS.snoozes]: state.snoozes,
+    [STORAGE_KEYS.snoozeHistory]: state.snoozeHistory,
+    [STORAGE_KEYS.lastResetDate]: state.lastResetDate
+  });
+
+  return {
+    allowed: true,
+    until,
+    count: recent.length
+  };
+}
+
 function isSnoozed(state, domain, now = Date.now()) {
   return Number(state.snoozes?.[domain] || 0) > now;
 }
@@ -185,6 +272,7 @@ async function clearExpiredState(now = Date.now()) {
   const didReset = ensureDailyState(state);
   let changedCooldowns = false;
   let changedSnoozes = false;
+  let changedSnoozeHistory = false;
 
   for (const [domain, untilRaw] of Object.entries(state.cooldowns)) {
     if (Number(untilRaw || 0) <= now) {
@@ -200,12 +288,38 @@ async function clearExpiredState(now = Date.now()) {
     }
   }
 
+  for (const [domain, rawList] of Object.entries(state.snoozeHistory || {})) {
+    const original = Array.isArray(rawList) ? rawList : [];
+    const filtered = original
+      .map((value) => Number(value || 0))
+      .filter((ts) => Number.isFinite(ts) && ts > now - SNOOZE_WINDOW_MS);
+
+    if (!filtered.length) {
+      if (original.length > 0 || state.snoozeHistory[domain]) {
+        delete state.snoozeHistory[domain];
+        changedSnoozeHistory = true;
+      }
+      continue;
+    }
+
+    const changed =
+      filtered.length !== original.length ||
+      filtered.some((value, index) => Number(original[index] || 0) !== value);
+    if (changed) {
+      state.snoozeHistory[domain] = filtered;
+      changedSnoozeHistory = true;
+    }
+  }
+
   const patch = {};
   if (changedCooldowns) {
     patch[STORAGE_KEYS.cooldowns] = state.cooldowns;
   }
   if (changedSnoozes) {
     patch[STORAGE_KEYS.snoozes] = state.snoozes;
+  }
+  if (changedSnoozeHistory) {
+    patch[STORAGE_KEYS.snoozeHistory] = state.snoozeHistory;
   }
   if (didReset) {
     patch[STORAGE_KEYS.lastResetDate] = state.lastResetDate;
@@ -378,14 +492,15 @@ async function startSessionFromTab(tab) {
   }
 
   const visited = state.visitedDomainsToday?.domains || {};
-  const revisitCount = visited[domain] ? 1 : 0;
-  visited[domain] = true;
+  const priorVisits = normalizeVisitCount(visited[domain]);
+  const revisitCount = Math.max(0, priorVisits);
+  visited[domain] = priorVisits + 1;
   state.visitedDomainsToday = { dateKey: localDateKey(), domains: visited };
 
   currentSession = {
     sessionId: makeSessionId(),
     domain,
-    url: tab.url,
+    url: getTrackableOrigin(tab.url) || tab.url,
     tabId: tab.id,
     startTime: Date.now(),
     lastTickAt: Date.now(),
@@ -438,8 +553,8 @@ async function getCountStatus(state, now = Date.now()) {
     return { active: false, reason: "break_return_window_expired" };
   }
 
-  if (now - currentSession.lastActivityAt > IDLE_TIMEOUT_MS) {
-    return { active: false, reason: "idle_5min" };
+  if (now - currentSession.lastActivityAt > getIdleTimeoutMs(state)) {
+    return { active: false, reason: "idle_timeout" };
   }
 
   const cooldownUntil = Number(state.cooldowns[currentSession.domain] || 0);
@@ -549,6 +664,7 @@ async function endSession(endReason) {
     );
 
     const finalized = {
+      sessionSchemaVersion: SESSION_SCHEMA_VERSION,
       sessionId: currentSession.sessionId,
       domain: currentSession.domain,
       url: currentSession.url,
@@ -560,12 +676,15 @@ async function endSession(endReason) {
       scrollCount: currentSession.scrollCount,
       tabSwitchCount: currentSession.tabSwitchCount,
       revisitCount: currentSession.revisitCount,
+      revisitCountMode: "daily_prior_visits",
       stage,
       riskLevel,
+      idleTimeoutMinUsed: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
       provisionalLabel: provisional.provisionalLabel,
       provisionalScore: provisional.provisionalScore,
       finalLabel: provisional.provisionalLabel,
       labelSource: "hybrid_skipped",
+      labelConfidence: "rule_only",
       stage2Choice: currentSession.stage2Choice,
       stage2ActionFailed: Boolean(currentSession.stage2ActionFailed),
       stage2FailReason: currentSession.stage2FailReason || null,
@@ -575,6 +694,7 @@ async function endSession(endReason) {
       breakType: currentSession.breakType,
       breakDurationSec: currentSession.breakDurationSec,
       promptShown: false,
+      promptSkipped: null,
       q1LongerThanIntended: null,
       q2HardToStop: null
     };
@@ -593,6 +713,7 @@ async function endSession(endReason) {
       )
     ) {
       finalized.promptShown = true;
+      finalized.labelConfidence = "pending_prompt";
       await openSessionPrompt(finalized.sessionId);
     }
 
@@ -627,7 +748,7 @@ async function syncToActiveTab(tab, source = "unknown") {
       return;
     } else {
       if (currentSession.tabId === tab.id) {
-        currentSession.url = tab.url || currentSession.url;
+        currentSession.url = getTrackableOrigin(tab.url || "") || currentSession.url;
         await persistCurrentSession();
       }
       return;
@@ -644,7 +765,6 @@ async function syncToActiveTab(tab, source = "unknown") {
         const activeCooldown = Number(state.cooldowns[currentSession.domain] || 0) > Date.now();
         if (activeCooldown) {
           // Keep the same session alive while temporarily blocked.
-          currentSession.url = tab.url;
           await persistCurrentSession();
           return;
         }
@@ -663,7 +783,7 @@ async function syncToActiveTab(tab, source = "unknown") {
   const isSame = currentSession.tabId === tab.id && currentSession.domain === incomingDomain;
 
   if (isSame) {
-    currentSession.url = tab.url;
+    currentSession.url = getTrackableOrigin(tab.url) || currentSession.url;
     currentSession.lastActivityAt = Date.now();
     await persistCurrentSession();
     return;
@@ -736,6 +856,7 @@ async function getPopupState() {
   return {
     trackingEnabled: state.trackingEnabled,
     debugEnabled: state.debugEnabled,
+    idleTimeoutMin: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
     domain,
     activeTimeSecToday,
     stage,
@@ -787,11 +908,13 @@ async function initialize() {
   await patchState({
     [STORAGE_KEYS.trackingEnabled]: state.trackingEnabled,
     [STORAGE_KEYS.debugEnabled]: state.debugEnabled,
+    [STORAGE_KEYS.idleTimeoutMin]: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
     [STORAGE_KEYS.sessions]: state.sessions,
     [STORAGE_KEYS.domainTotals]: state.domainTotals,
     [STORAGE_KEYS.visitedDomainsToday]: state.visitedDomainsToday,
     [STORAGE_KEYS.cooldowns]: state.cooldowns,
     [STORAGE_KEYS.snoozes]: state.snoozes,
+    [STORAGE_KEYS.snoozeHistory]: state.snoozeHistory,
     [STORAGE_KEYS.lastResetDate]: state.lastResetDate,
     [STORAGE_KEYS.stageNotified]: state.stageNotified
   });
@@ -830,6 +953,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   (async () => {
     await clearExpiredState();
     await enforceBlockOnActiveTab();
+    const state = await getState();
+    ensureDailyState(state);
 
     if (!currentSession) {
       await updateActionBadge();
@@ -845,8 +970,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       return;
     }
 
-    if (Date.now() - currentSession.lastActivityAt >= IDLE_TIMEOUT_MS) {
-      await endSession("idle_5min");
+    if (Date.now() - currentSession.lastActivityAt >= getIdleTimeoutMs(state)) {
+      await endSession(END_REASON_IDLE);
       await updateActionBadge();
       return;
     }
@@ -928,6 +1053,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       await updateActionBadge();
       sendResponse({ ok: true, enabled });
+      return;
+    }
+
+    if (message?.type === "SET_IDLE_TIMEOUT") {
+      const minutes = sanitizeIdleTimeoutMin(message.minutes);
+      await patchState({ [STORAGE_KEYS.idleTimeoutMin]: minutes });
+      sendResponse({ ok: true, minutes });
       return;
     }
 
@@ -1069,6 +1201,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       session.finalLabel = adjusted.finalLabel;
       session.labelSource = adjusted.labelSource;
+      const promptSkipped = q1LongerThanIntended === "skip" && q2HardToStop === null;
+      session.promptSkipped = promptSkipped;
+      if (promptSkipped) {
+        session.labelConfidence = "skipped";
+      } else if (adjusted.labelSource === "hybrid_adjusted") {
+        session.labelConfidence = "adjusted";
+      } else if (adjusted.labelSource === "hybrid_confirmed") {
+        session.labelConfidence = "confirmed";
+      } else {
+        session.labelConfidence = "rule_only";
+      }
 
       state.sessions[idx] = session;
       await patchState({ [STORAGE_KEYS.sessions]: state.sessions });
@@ -1160,9 +1303,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         await updateActionBadge();
+        const result = actionFailed ? "noop" : "success";
         sendResponse({
           ok: true,
-          message: "Action completed.",
+          result,
+          message: actionFailed
+            ? "Could not start break because the target tab is unavailable."
+            : "Break started for 5 minutes.",
           actionFailed,
           failReason
         });
@@ -1170,17 +1317,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (action === "snooze") {
-        const snoozeUntil = await setSnooze(domain, SNOOZE_MINUTES);
+        const snoozeDecision = await applySnoozeWithCap(domain, SNOOZE_MINUTES);
+        const actionFailed = !snoozeDecision.allowed;
+        const failReason = actionFailed ? "snooze_cap_reached" : null;
         if (currentSession && currentSession.domain === domain) {
           currentSession.stage2Choice = "snooze";
-          currentSession.stage2ActionFailed = false;
-          currentSession.stage2FailReason = null;
-          currentSession.snoozeUntil = snoozeUntil;
-          currentSession.snoozeMinutes = SNOOZE_MINUTES;
+          currentSession.stage2ActionFailed = actionFailed;
+          currentSession.stage2FailReason = failReason;
+          currentSession.snoozeUntil = actionFailed ? null : snoozeDecision.until;
+          currentSession.snoozeMinutes = actionFailed ? null : SNOOZE_MINUTES;
           await persistCurrentSession();
         }
         await updateActionBadge();
-        sendResponse({ ok: true, message: "Snoozed for 10 minutes." });
+
+        if (actionFailed) {
+          sendResponse({
+            ok: true,
+            result: "noop",
+            message: `Snooze limit reached (${SNOOZE_LIMIT_PER_HOUR}/hour). Try again in ${formatMsToMinSec(snoozeDecision.waitMs)}, or take a 5-minute break.`,
+            actionFailed: true,
+            failReason,
+            snoozeCount: snoozeDecision.count,
+            maxSnoozesPerHour: SNOOZE_LIMIT_PER_HOUR
+          });
+          return;
+        }
+
+        const escalationHint =
+          snoozeDecision.count >= 2
+            ? ` (Snooze ${snoozeDecision.count}/${SNOOZE_LIMIT_PER_HOUR} this hour.)`
+            : "";
+        sendResponse({
+          ok: true,
+          result: "success",
+          message: `Snoozed for ${SNOOZE_MINUTES} minutes.${escalationHint}`,
+          actionFailed: false,
+          failReason: null,
+          snoozeCount: snoozeDecision.count,
+          maxSnoozesPerHour: SNOOZE_LIMIT_PER_HOUR
+        });
         return;
       }
 
@@ -1227,9 +1402,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await persistCurrentSession();
         }
 
+        const result = actionFailed ? "noop" : "success";
         sendResponse({
           ok: true,
-          message: "Action completed.",
+          result,
+          message: actionFailed
+            ? "The tab is already closed or unavailable."
+            : "Closing the tab.",
           actionFailed,
           failReason
         });

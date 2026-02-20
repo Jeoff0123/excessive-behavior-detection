@@ -1,6 +1,7 @@
 ﻿const trackingToggle = document.getElementById("trackingToggle");
 const debugToggle = document.getElementById("debugToggle");
 const statusText = document.getElementById("statusText");
+const idleTimeoutSelect = document.getElementById("idleTimeoutSelect");
 const domainText = document.getElementById("domainText");
 const timeText = document.getElementById("timeText");
 const stageText = document.getElementById("stageText");
@@ -54,6 +55,7 @@ function formatCounterStatus(reason, isActive) {
     tracking_disabled: "Paused: tracking is OFF",
     break_pause: "Paused: 5-minute break active",
     break_return_window_expired: "Paused: waiting for break auto-end",
+    idle_timeout: "Paused: idle timeout reached",
     idle_5min: "Paused: idle for 5+ min",
     cooldown_active: "Paused: cooldown active",
     tab_inactive_or_invalid_url: "Paused: inactive tab or invalid URL",
@@ -85,6 +87,9 @@ async function refresh() {
   const { data } = res;
   trackingToggle.checked = Boolean(data.trackingEnabled);
   debugToggle.checked = Boolean(data.debugEnabled);
+  if (idleTimeoutSelect) {
+    idleTimeoutSelect.value = String(data.idleTimeoutMin || 5);
+  }
   debugActions.classList.toggle("hidden", !data.debugEnabled);
 
   domainText.textContent = data.domain || "-";
@@ -112,6 +117,17 @@ debugToggle?.addEventListener("change", async () => {
     return;
   }
   setStatus(`Debug mode ${res.enabled ? "enabled" : "disabled"}.`);
+  await refresh();
+});
+
+idleTimeoutSelect?.addEventListener("change", async () => {
+  const minutes = Number(idleTimeoutSelect.value || 5);
+  const res = await send("SET_IDLE_TIMEOUT", { minutes });
+  if (!res?.ok) {
+    setStatus(res?.error || "Failed to set idle timeout.", true);
+    return;
+  }
+  setStatus(`Idle timeout set to ${res.minutes} minutes.`);
   await refresh();
 });
 

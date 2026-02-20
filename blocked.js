@@ -10,13 +10,18 @@ function parseParams() {
   };
 }
 
-function setStatus(message, isError = false) {
+function setStatus(message, tone = "success") {
   const el = document.getElementById("actionStatus");
   if (!el) {
     return;
   }
+  const colorByTone = {
+    success: "#256d5a",
+    info: "#5f584f",
+    error: "#9c2a17"
+  };
   el.textContent = message;
-  el.style.color = isError ? "#9c2a17" : "#256d5a";
+  el.style.color = colorByTone[tone] || colorByTone.info;
 }
 
 function isAllowedReturnUrl(candidateUrl, site) {
@@ -60,14 +65,23 @@ async function sendStage2Action(action, domain, sourceTabId, options = {}) {
   });
 
   if (!response?.ok) {
-    setStatus(response?.error || "Action failed.", true);
-    return;
+    setStatus(response?.error || "Action failed.", "error");
+    return response;
   }
 
-  setStatus(response.message || "Action completed.");
-  if (closeOnSuccess && !response.actionFailed) {
-    await closeCurrentTab();
+  const result = response.result || (response.actionFailed ? "noop" : "success");
+  const tone = result === "noop" ? "info" : "success";
+  setStatus(response.message || "Action completed.", tone);
+
+  if (closeOnSuccess && result === "success" && !response.actionFailed) {
+    try {
+      await closeCurrentTab();
+    } catch (_error) {
+      // Keep the nudge page open if the tab cannot be closed.
+    }
   }
+
+  return response;
 }
 
 function renderStage2Nudge(site, sourceTabId) {
@@ -84,21 +98,52 @@ function renderStage2Nudge(site, sourceTabId) {
   remaining.textContent = "";
   nudgeActions.classList.remove("hidden");
 
+  const buttons = [takeBreakBtn, snoozeBtn, closeTabBtn];
+  const setButtonsDisabled = (disabled) => {
+    for (const btn of buttons) {
+      if (btn) {
+        btn.disabled = disabled;
+      }
+    }
+  };
+
+  async function runAction(action, options = {}) {
+    setButtonsDisabled(true);
+    try {
+      const response = await sendStage2Action(action, site, sourceTabId, {
+        closeOnSuccess: options.closeOnSuccess
+      });
+      const result = response?.result || (response?.actionFailed ? "noop" : "success");
+
+      if (!response?.ok || result === "noop") {
+        setButtonsDisabled(false);
+        return;
+      }
+
+      if (!options.lockOnSuccess) {
+        setButtonsDisabled(false);
+      }
+    } catch (error) {
+      setStatus(error?.message || "Action failed.", "error");
+      setButtonsDisabled(false);
+    }
+  }
+
   takeBreakBtn.addEventListener("click", () => {
-    sendStage2Action("break_5", site, sourceTabId, { closeOnSuccess: false }).catch((error) => {
-      setStatus(error?.message || "Action failed.", true);
+    runAction("break_5", { closeOnSuccess: false, lockOnSuccess: true }).catch(() => {
+      // handled in runAction
     });
   });
 
   snoozeBtn.addEventListener("click", () => {
-    sendStage2Action("snooze", site, sourceTabId).catch((error) => {
-      setStatus(error?.message || "Action failed.", true);
+    runAction("snooze", { closeOnSuccess: true, lockOnSuccess: false }).catch(() => {
+      // handled in runAction
     });
   });
 
   closeTabBtn.addEventListener("click", () => {
-    sendStage2Action("close_tab", site, sourceTabId).catch((error) => {
-      setStatus(error?.message || "Action failed.", true);
+    runAction("close_tab", { closeOnSuccess: true, lockOnSuccess: false }).catch(() => {
+      // handled in runAction
     });
   });
 }

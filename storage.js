@@ -1,11 +1,13 @@
 export const STORAGE_KEYS = {
   trackingEnabled: "trackingEnabled",
   debugEnabled: "debugEnabled",
+  idleTimeoutMin: "idleTimeoutMin",
   sessions: "sessions",
   domainTotals: "domainTotals",
   visitedDomainsToday: "visitedDomainsToday",
   cooldowns: "cooldowns",
   snoozes: "snoozes",
+  snoozeHistory: "snoozeHistory",
   lastResetDate: "lastResetDate",
   currentSessionState: "currentSessionState",
   stageNotified: "stageNotified"
@@ -21,11 +23,13 @@ export function getDefaultState() {
   return {
     trackingEnabled: true,
     debugEnabled: false,
+    idleTimeoutMin: 5,
     sessions: [],
     domainTotals: {},
     visitedDomainsToday: { dateKey: localDateKey(), domains: {} },
     cooldowns: {},
     snoozes: {},
+    snoozeHistory: {},
     lastResetDate: localDateKey(),
     currentSessionState: null,
     stageNotified: {}
@@ -44,6 +48,11 @@ export async function getState() {
       typeof stored[STORAGE_KEYS.debugEnabled] === "boolean"
         ? stored[STORAGE_KEYS.debugEnabled]
         : defaults.debugEnabled,
+    idleTimeoutMin:
+      Number.isInteger(stored[STORAGE_KEYS.idleTimeoutMin]) &&
+      stored[STORAGE_KEYS.idleTimeoutMin] > 0
+        ? stored[STORAGE_KEYS.idleTimeoutMin]
+        : defaults.idleTimeoutMin,
     sessions: Array.isArray(stored[STORAGE_KEYS.sessions]) ? stored[STORAGE_KEYS.sessions] : defaults.sessions,
     domainTotals:
       stored[STORAGE_KEYS.domainTotals] && typeof stored[STORAGE_KEYS.domainTotals] === "object"
@@ -62,6 +71,10 @@ export async function getState() {
       stored[STORAGE_KEYS.snoozes] && typeof stored[STORAGE_KEYS.snoozes] === "object"
         ? stored[STORAGE_KEYS.snoozes]
         : defaults.snoozes,
+    snoozeHistory:
+      stored[STORAGE_KEYS.snoozeHistory] && typeof stored[STORAGE_KEYS.snoozeHistory] === "object"
+        ? stored[STORAGE_KEYS.snoozeHistory]
+        : defaults.snoozeHistory,
     lastResetDate:
       typeof stored[STORAGE_KEYS.lastResetDate] === "string"
         ? stored[STORAGE_KEYS.lastResetDate]
