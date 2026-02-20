@@ -1,6 +1,9 @@
+import { DEFAULT_MODE, sanitizeMode } from "./rules.js";
+
 export const STORAGE_KEYS = {
   trackingEnabled: "trackingEnabled",
   debugEnabled: "debugEnabled",
+  mode: "mode",
   idleTimeoutMin: "idleTimeoutMin",
   sessions: "sessions",
   domainTotals: "domainTotals",
@@ -23,6 +26,7 @@ export function getDefaultState() {
   return {
     trackingEnabled: true,
     debugEnabled: false,
+    mode: DEFAULT_MODE,
     idleTimeoutMin: 5,
     sessions: [],
     domainTotals: {},
@@ -48,6 +52,7 @@ export async function getState() {
       typeof stored[STORAGE_KEYS.debugEnabled] === "boolean"
         ? stored[STORAGE_KEYS.debugEnabled]
         : defaults.debugEnabled,
+    mode: sanitizeMode(stored[STORAGE_KEYS.mode]),
     idleTimeoutMin:
       Number.isInteger(stored[STORAGE_KEYS.idleTimeoutMin]) &&
       stored[STORAGE_KEYS.idleTimeoutMin] > 0

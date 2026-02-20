@@ -22,6 +22,11 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - Stage 2: 60-119 min
   - Stage 3: 120-239 min
   - Stage 4: >=240 min
+- Mode profiles (popup):
+  - `Default` (`x1.0` thresholds, balanced prompt tone)
+  - `Study-Research` (`x1.2` thresholds, more tolerant + break-focused tone)
+  - `Entertainment` (`x0.9` thresholds, slightly stricter + stop-focused tone)
+  - mode also adjusts snooze suppression window (`12` / `10` / `8` minutes respectively)
 - Risk mapping:
   - Stage 0 -> Low
   - Stage 1-2 -> Medium
@@ -34,6 +39,7 @@ This tool is a digital well-being aid, not an enforcement or security control.
 - Revisit signal:
   - `revisitCount` stores prior visits to the same domain on the same day (frequency-style)
   - export includes `revisitCountMode` and `sessionSchemaVersion` for dataset compatibility
+  - export also includes `mode` and `ruleVersion` for dataset reproducibility
 - Interventions:
   - Stage 1 notification once/domain/day
   - Stage 2 notification + blocked-page nudge

@@ -7,7 +7,15 @@ import {
   ensureDomainTotalRecord,
   getTodayDomainSec
 } from "./storage.js";
-import { MEDIUM, getStage, getRiskLevel, formatRiskLabel } from "./rules.js";
+import {
+  MEDIUM,
+  getStage,
+  getRiskLevel,
+  formatRiskLabel,
+  sanitizeMode,
+  getModeConfig,
+  RULE_VERSION
+} from "./rules.js";
 import { exportSessionsCsv } from "./export.js";
 
 const ALARM_TICK = "tick_30s";
@@ -21,7 +29,7 @@ const SNOOZE_MINUTES = 10;
 const SNOOZE_LIMIT_PER_HOUR = 3;
 const SNOOZE_WINDOW_MS = 60 * 60 * 1000;
 const BREAK_RETURN_WINDOW_MS = 10 * 60 * 1000;
-const SESSION_SCHEMA_VERSION = 2;
+const SESSION_SCHEMA_VERSION = 3;
 const END_REASON_IDLE = "idle_timeout";
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_COLOR_BY_STAGE = {
@@ -64,6 +72,10 @@ function getTrackableOrigin(url) {
   }
 }
 
+function getActiveMode(state) {
+  return sanitizeMode(state?.mode);
+}
+
 function makeSessionId() {
   if (globalThis.crypto?.randomUUID) {
     return crypto.randomUUID();
@@ -98,11 +110,12 @@ function normalize(value, cap) {
   return Math.min(1, n / cap);
 }
 
-function computeProvisional(activeTimeSec, scrollCount, tabSwitchCount, revisitCount) {
-  const time = normalize(activeTimeSec, 1800);
-  const scroll = normalize(scrollCount, 200);
-  const switches = normalize(tabSwitchCount, 20);
-  const revisit = normalize(revisitCount, 10);
+function computeProvisional(activeTimeSec, scrollCount, tabSwitchCount, revisitCount, mode) {
+  const multiplier = Number(getModeConfig(mode).multiplier || 1);
+  const time = normalize(activeTimeSec, Math.max(1, Math.round(1800 * multiplier)));
+  const scroll = normalize(scrollCount, Math.max(1, Math.round(200 * multiplier)));
+  const switches = normalize(tabSwitchCount, Math.max(1, Math.round(20 * multiplier)));
+  const revisit = normalize(revisitCount, Math.max(1, Math.round(10 * multiplier)));
   const score = 0.4 * time + 0.2 * scroll + 0.2 * switches + 0.2 * revisit;
 
   let label = 2;
@@ -371,7 +384,13 @@ async function enforceBlockOnActiveTab() {
   return handleTabUpdate(tab.id, tab.url);
 }
 
-async function sendStageNotification(domain, stage) {
+async function sendStageNotification(domain, stage, mode) {
+  const tone = getModeConfig(mode).promptTone;
+  const stage2ByTone = {
+    balanced: `You've spent extended time on ${domain}. Consider a short break.`,
+    break_focused: `You're in Study-Research mode. A short break can help you reset and continue.`,
+    stop_focused: `You're in Entertainment mode. Consider stopping this tab or taking a break now.`
+  };
   const titleByStage = {
     1: "Stage 1: Gentle reminder",
     2: "Stage 2: Take a break",
@@ -379,9 +398,9 @@ async function sendStageNotification(domain, stage) {
   };
 
   const messageByStage = {
-    1: `${domain} has reached 30+ minutes today.`,
-    2: `${domain} has reached 60+ minutes today.`,
-    3: `${domain} has reached 120+ minutes and is in cooldown.`
+    1: `${domain} usage is increasing.`,
+    2: stage2ByTone[tone] || stage2ByTone.balanced,
+    3: `${domain} entered cooldown.`
   };
 
   try {
@@ -396,9 +415,11 @@ async function sendStageNotification(domain, stage) {
   }
 }
 
-async function openStage2Nudge(domain, tabId) {
+async function openStage2Nudge(domain, tabId, mode) {
+  const safeMode = sanitizeMode(mode);
+  const promptTone = getModeConfig(safeMode).promptTone;
   const url = chrome.runtime.getURL(
-    `blocked.html?mode=stage_nudge&stage=2&domain=${encodeURIComponent(domain)}&site=${encodeURIComponent(domain)}&sourceTabId=${encodeURIComponent(String(tabId || 0))}`
+    `blocked.html?mode=stage_nudge&stage=2&domain=${encodeURIComponent(domain)}&site=${encodeURIComponent(domain)}&sourceTabId=${encodeURIComponent(String(tabId || 0))}&riskMode=${encodeURIComponent(safeMode)}&promptTone=${encodeURIComponent(promptTone)}`
   );
   await chrome.tabs.create({ url });
 }
@@ -407,7 +428,7 @@ function stageNotifyKey(domain, stage, dateKey) {
   return `${dateKey}|${domain}|${stage}`;
 }
 
-async function maybeTriggerStageInterventions(state, domain, previousStage, nextStage) {
+async function maybeTriggerStageInterventions(state, domain, previousStage, nextStage, mode) {
   if (!state.trackingEnabled) {
     return;
   }
@@ -418,7 +439,7 @@ async function maybeTriggerStageInterventions(state, domain, previousStage, next
   if (previousStage < 1 && nextStage >= 1) {
     const key = stageNotifyKey(domain, 1, dateKey);
     if (!state.stageNotified[key]) {
-      await sendStageNotification(domain, 1);
+      await sendStageNotification(domain, 1, mode);
       state.stageNotified[key] = true;
       changed = true;
     }
@@ -427,7 +448,7 @@ async function maybeTriggerStageInterventions(state, domain, previousStage, next
   if (previousStage < 2 && nextStage >= 2) {
     const key = stageNotifyKey(domain, 2, dateKey);
     if (!state.stageNotified[key]) {
-      await sendStageNotification(domain, 2);
+      await sendStageNotification(domain, 2, mode);
       state.stageNotified[key] = true;
       changed = true;
     }
@@ -438,7 +459,7 @@ async function maybeTriggerStageInterventions(state, domain, previousStage, next
     if (!activeCooldown) {
       state.cooldowns[domain] = await blockSite(domain, DEFAULT_COOLDOWN_MS);
       await enforceBlockOnActiveTab();
-      await sendStageNotification(domain, 3);
+      await sendStageNotification(domain, 3, mode);
       changed = true;
     }
   }
@@ -459,7 +480,7 @@ async function maybeTriggerStageInterventions(state, domain, previousStage, next
     if (sessionCanShow && !cooldownActive && !isSnoozed(state, domain)) {
       currentSession.stage2PromptShown = true;
       await persistCurrentSession();
-      await openStage2Nudge(domain, currentSession.tabId);
+      await openStage2Nudge(domain, currentSession.tabId, mode);
     }
   }
 
@@ -615,10 +636,17 @@ async function accrueActiveTime(now = Date.now()) {
 
   const beforeSec = getTodayDomainSec(state, currentSession.domain);
   const afterSec = beforeSec + elapsedSec;
+  const mode = getActiveMode(state);
   ensureDomainTotalRecord(state, currentSession.domain).activeTimeSecToday = afterSec;
   currentSession.activeTimeSec += elapsedSec;
 
-  await maybeTriggerStageInterventions(state, currentSession.domain, getStage(beforeSec), getStage(afterSec));
+  await maybeTriggerStageInterventions(
+    state,
+    currentSession.domain,
+    getStage(beforeSec, mode),
+    getStage(afterSec, mode),
+    mode
+  );
 
   await patchState({
     [STORAGE_KEYS.domainTotals]: state.domainTotals,
@@ -652,15 +680,17 @@ async function endSession(endReason) {
 
     const state = await getState();
     ensureDailyState(state);
+    const mode = getActiveMode(state);
 
     const domainSec = getTodayDomainSec(state, currentSession.domain);
-    const stage = getStage(domainSec);
+    const stage = getStage(domainSec, mode);
     const riskLevel = getRiskLevel(stage);
     const provisional = computeProvisional(
       currentSession.activeTimeSec,
       currentSession.scrollCount,
       currentSession.tabSwitchCount,
-      currentSession.revisitCount
+      currentSession.revisitCount,
+      mode
     );
 
     const finalized = {
@@ -679,6 +709,8 @@ async function endSession(endReason) {
       revisitCountMode: "daily_prior_visits",
       stage,
       riskLevel,
+      mode,
+      ruleVersion: RULE_VERSION,
       idleTimeoutMinUsed: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
       provisionalLabel: provisional.provisionalLabel,
       provisionalScore: provisional.provisionalScore,
@@ -837,7 +869,9 @@ async function getPopupState() {
   const tab = await getActiveTab();
   const domain = tab?.url ? getDomain(tab.url) : null;
   const activeTimeSecToday = domain ? getTodayDomainSec(state, domain) : 0;
-  const stage = getStage(activeTimeSecToday);
+  const mode = getActiveMode(state);
+  const modeConfig = getModeConfig(mode);
+  const stage = getStage(activeTimeSecToday, mode);
   const riskLevel = getRiskLevel(stage);
   const matchedCooldown = domain ? findActiveBlockForDomain(state.cooldowns, domain, now) : null;
   const cooldownUntil = matchedCooldown ? Number(matchedCooldown.blockedUntil || 0) : 0;
@@ -856,6 +890,8 @@ async function getPopupState() {
   return {
     trackingEnabled: state.trackingEnabled,
     debugEnabled: state.debugEnabled,
+    mode,
+    modeLabel: modeConfig.label,
     idleTimeoutMin: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
     domain,
     activeTimeSecToday,
@@ -889,7 +925,7 @@ async function updateActionBadge(stateArg = null) {
   }
 
   const sec = getTodayDomainSec(state, domain);
-  const stage = getStage(sec);
+  const stage = getStage(sec, getActiveMode(state));
   await chrome.action.setBadgeText({ text: `S${stage}` });
   await chrome.action.setBadgeBackgroundColor({ color: BADGE_COLOR_BY_STAGE[stage] || BADGE_COLOR_BY_STAGE[0] });
 }
@@ -908,6 +944,7 @@ async function initialize() {
   await patchState({
     [STORAGE_KEYS.trackingEnabled]: state.trackingEnabled,
     [STORAGE_KEYS.debugEnabled]: state.debugEnabled,
+    [STORAGE_KEYS.mode]: getActiveMode(state),
     [STORAGE_KEYS.idleTimeoutMin]: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
     [STORAGE_KEYS.sessions]: state.sessions,
     [STORAGE_KEYS.domainTotals]: state.domainTotals,
@@ -1063,6 +1100,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    if (message?.type === "SET_MODE") {
+      const mode = sanitizeMode(message.mode);
+      const modeConfig = getModeConfig(mode);
+      await patchState({ [STORAGE_KEYS.mode]: mode });
+      await updateActionBadge();
+      sendResponse({ ok: true, mode, modeLabel: modeConfig.label });
+      return;
+    }
+
     if (message?.type === "SET_DEBUG") {
       const enabled = Boolean(message.enabled);
       await patchState({ [STORAGE_KEYS.debugEnabled]: enabled });
@@ -1085,10 +1131,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       ensureDailyState(state);
+      const mode = getActiveMode(state);
       const beforeSec = getTodayDomainSec(state, domain);
       const afterSec = beforeSec + 600;
       ensureDomainTotalRecord(state, domain).activeTimeSecToday = afterSec;
-      await maybeTriggerStageInterventions(state, domain, getStage(beforeSec), getStage(afterSec));
+      await maybeTriggerStageInterventions(
+        state,
+        domain,
+        getStage(beforeSec, mode),
+        getStage(afterSec, mode),
+        mode
+      );
 
       await patchState({
         [STORAGE_KEYS.domainTotals]: state.domainTotals,
@@ -1317,7 +1370,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       if (action === "snooze") {
-        const snoozeDecision = await applySnoozeWithCap(domain, SNOOZE_MINUTES);
+        const state = await getState();
+        const mode = getActiveMode(state);
+        const snoozeMinutes = Number(getModeConfig(mode).snoozeMinutes || SNOOZE_MINUTES);
+        const snoozeDecision = await applySnoozeWithCap(domain, snoozeMinutes);
         const actionFailed = !snoozeDecision.allowed;
         const failReason = actionFailed ? "snooze_cap_reached" : null;
         if (currentSession && currentSession.domain === domain) {
@@ -1325,7 +1381,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           currentSession.stage2ActionFailed = actionFailed;
           currentSession.stage2FailReason = failReason;
           currentSession.snoozeUntil = actionFailed ? null : snoozeDecision.until;
-          currentSession.snoozeMinutes = actionFailed ? null : SNOOZE_MINUTES;
+          currentSession.snoozeMinutes = actionFailed ? null : snoozeMinutes;
           await persistCurrentSession();
         }
         await updateActionBadge();
@@ -1350,7 +1406,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({
           ok: true,
           result: "success",
-          message: `Snoozed for ${SNOOZE_MINUTES} minutes.${escalationHint}`,
+          message: `Snoozed for ${snoozeMinutes} minutes.${escalationHint}`,
           actionFailed: false,
           failReason: null,
           snoozeCount: snoozeDecision.count,

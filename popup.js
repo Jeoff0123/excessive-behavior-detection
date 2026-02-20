@@ -1,6 +1,7 @@
 ﻿const trackingToggle = document.getElementById("trackingToggle");
 const debugToggle = document.getElementById("debugToggle");
 const statusText = document.getElementById("statusText");
+const modeSelect = document.getElementById("modeSelect");
 const idleTimeoutSelect = document.getElementById("idleTimeoutSelect");
 const domainText = document.getElementById("domainText");
 const timeText = document.getElementById("timeText");
@@ -87,6 +88,9 @@ async function refresh() {
   const { data } = res;
   trackingToggle.checked = Boolean(data.trackingEnabled);
   debugToggle.checked = Boolean(data.debugEnabled);
+  if (modeSelect) {
+    modeSelect.value = String(data.mode || "default");
+  }
   if (idleTimeoutSelect) {
     idleTimeoutSelect.value = String(data.idleTimeoutMin || 5);
   }
@@ -117,6 +121,17 @@ debugToggle?.addEventListener("change", async () => {
     return;
   }
   setStatus(`Debug mode ${res.enabled ? "enabled" : "disabled"}.`);
+  await refresh();
+});
+
+modeSelect?.addEventListener("change", async () => {
+  const mode = String(modeSelect.value || "default");
+  const res = await send("SET_MODE", { mode });
+  if (!res?.ok) {
+    setStatus(res?.error || "Failed to change mode.", true);
+    return;
+  }
+  setStatus(`Mode set to ${res.modeLabel || res.mode}.`);
   await refresh();
 });
 

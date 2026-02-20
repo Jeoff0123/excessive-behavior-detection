@@ -6,7 +6,9 @@ function parseParams() {
     site: search.get("site") || search.get("domain") || "unknown",
     until: Number(search.get("until") || 0),
     returnUrl: search.get("returnUrl") || null,
-    sourceTabId: Number(search.get("sourceTabId") || 0)
+    sourceTabId: Number(search.get("sourceTabId") || 0),
+    riskMode: search.get("riskMode") || "default",
+    promptTone: search.get("promptTone") || "balanced"
   };
 }
 
@@ -84,7 +86,16 @@ async function sendStage2Action(action, domain, sourceTabId, options = {}) {
   return response;
 }
 
-function renderStage2Nudge(site, sourceTabId) {
+function getModeLabel(riskMode) {
+  const labels = {
+    default: "Default",
+    study_research: "Study-Research",
+    entertainment: "Entertainment"
+  };
+  return labels[riskMode] || labels.default;
+}
+
+function renderStage2Nudge(site, sourceTabId, promptTone, riskMode) {
   const titleText = document.getElementById("titleText");
   const messageText = document.getElementById("messageText");
   const remaining = document.getElementById("remaining");
@@ -93,8 +104,18 @@ function renderStage2Nudge(site, sourceTabId) {
   const snoozeBtn = document.getElementById("snoozeBtn");
   const closeTabBtn = document.getElementById("closeTabBtn");
 
-  titleText.textContent = "Take a Break";
-  messageText.textContent = "You\'ve been browsing for a while. What would you like to do now?";
+  const tone = String(promptTone || "balanced");
+  const modeLabel = getModeLabel(riskMode);
+  if (tone === "break_focused") {
+    titleText.textContent = "Take a Short Reset";
+    messageText.textContent = `Mode: ${modeLabel}. Pause for 5 minutes, then continue with intention.`;
+  } else if (tone === "stop_focused") {
+    titleText.textContent = "Pause or Stop This Session";
+    messageText.textContent = `Mode: ${modeLabel}. This session is escalating. Consider closing this tab.`;
+  } else {
+    titleText.textContent = "Take a Break";
+    messageText.textContent = "You've been browsing for a while. What would you like to do now?";
+  }
   remaining.textContent = "";
   nudgeActions.classList.remove("hidden");
 
@@ -178,12 +199,12 @@ function renderCooldown(site, until, returnUrl) {
 }
 
 function render() {
-  const { mode, stage, site, until, returnUrl, sourceTabId } = parseParams();
+  const { mode, stage, site, until, returnUrl, sourceTabId, promptTone, riskMode } = parseParams();
   const siteEl = document.getElementById("site");
   siteEl.textContent = site;
 
   if (mode === "stage_nudge" && stage === 2) {
-    renderStage2Nudge(site, sourceTabId);
+    renderStage2Nudge(site, sourceTabId, promptTone, riskMode);
     return;
   }
 
