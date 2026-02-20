@@ -1,0 +1,87 @@
+You are developing a Chrome/Brave browser extension (Manifest V3) called "Excessive Web Browsing Detector".
+
+Phase 1 Objective:
+Implement a staged prompt and cooldown blocking system using rule-based time thresholds. Machine learning (Logistic Regression) will be integrated later, so do NOT include Logistic Regression yet.
+
+The extension must monitor browsing time per domain and trigger staged interventions based on continuous browsing duration.
+
+Requirements:
+
+1. Track browsing time per domain:
+   - When a tab becomes active, start tracking time.
+   - When user switches tabs or closes tab, calculate time spent.
+   - Store browsing session data in chrome.storage.local.
+
+Data structure example:
+{
+  "sessions": {
+    "facebook.com": {
+      "startTime": 1761120000000,
+      "totalTime": 1800000
+    }
+  }
+}
+
+2. Implement staged detection thresholds based on total continuous browsing time:
+
+Stage 0 — Normal Use
+Condition: time < 30 minutes
+Action: No prompt
+
+Stage 1 — Early Warning
+Condition: time ≥ 30 minutes
+Action: Show non-intrusive notification
+
+Stage 2 — Intervention Prompt
+Condition: time ≥ 60 minutes
+Action: Show prompt with buttons:
+- Close Tab
+- Continue Browsing
+- Remind Me Later (10 minutes)
+
+Stage 3 — Strong Intervention
+Condition: time ≥ 120 minutes
+Action: Show persistent overlay prompt
+
+Stage 4 — Extreme Use
+Condition: time ≥ 240 minutes
+Action: Recommend closing tab
+
+3. If user clicks "Close Tab":
+   - Close the tab using chrome.tabs.remove()
+   - Start cooldown block for that domain (default: 15 minutes)
+   - Store cooldown in chrome.storage.local
+
+Example:
+blockedSites = {
+  "facebook.com": 1761120300000
+}
+
+4. Prevent access during cooldown:
+   - Listen for chrome.tabs.onUpdated
+   - If user opens blocked domain before cooldown expires:
+     Redirect to blocked.html
+
+5. Implement modular functions:
+
+getDomain(url)
+startTracking(tabId, domain)
+updateTracking(tabId)
+checkStage(domain, totalTime)
+showPrompt(stage)
+blockSite(domain, duration)
+isSiteBlocked(domain)
+
+6. Technical requirements:
+
+- Use Manifest V3 service worker (background.js)
+- Use chrome.storage.local
+- No backend/server
+- Code must be clean and modular
+- Include comments
+
+7. Output:
+Provide complete background.js and content.js implementation for staged prompt and cooldown system.
+
+Note:
+This is Phase 1 implementation. Logistic Regression integration will be added later.

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rate Session</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(140deg, #f6f4ee, #dce8e1);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: #1d1b16;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    .panel {
+      width: 100%;
+      max-width: 640px;
+      background: #fff;
+      border: 1px solid #ddd6ca;
+      border-radius: 14px;
+      padding: 18px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+    }
+
+    p {
+      color: #61584b;
+      margin: 8px 0;
+    }
+
+    fieldset {
+      border: 1px solid #ddd6ca;
+      border-radius: 10px;
+      padding: 10px;
+      margin-top: 12px;
+    }
+
+    legend {
+      font-weight: 700;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #256d5a;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 14px;
+    }
+
+    #status {
+      margin-top: 10px;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <h1>Rate Session</h1>
+    <p>Help validate the session risk label with two quick questions.</p>
+
+    <fieldset>
+      <legend>1) Did you browse longer than you intended?</legend>
+      <div class="row">
+        <label><input type="radio" name="q1" value="yes" /> Yes</label>
+        <label><input type="radio" name="q1" value="no" /> No</label>
+        <label><input type="radio" name="q1" value="skip" checked /> Skip</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>2) How hard was it to stop? (1-5)</legend>
+      <div class="row">
+        <label><input type="radio" name="q2" value="1" /> 1</label>
+        <label><input type="radio" name="q2" value="2" /> 2</label>
+        <label><input type="radio" name="q2" value="3" /> 3</label>
+        <label><input type="radio" name="q2" value="4" /> 4</label>
+        <label><input type="radio" name="q2" value="5" /> 5</label>
+        <label><input type="radio" name="q2" value="skip" checked /> Skip</label>
+      </div>
+    </fieldset>
+
+    <button id="saveBtn">Save answers</button>
+    <p id="status"></p>
+  </main>
+
+  <script src="prompt.js"></script>
+</body>
+</html>

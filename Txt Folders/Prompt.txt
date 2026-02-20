@@ -1,0 +1,254 @@
+You are developing a Chrome/Brave browser extension (Manifest V3) called "Excessive Web Browsing Detector".
+
+The extension monitors browsing behavior and implements a cooldown blocking mechanism when a user closes a tab after excessive browsing.
+
+Your task is to implement the cooldown block system using JavaScript and Chrome Extension APIs.
+
+Requirements:
+
+1. When the extension decides to block a website (for example, after user clicks "Close tab"), it must:
+   - Extract the domain from the tab URL (example: https://www.facebook.com → facebook.com)
+   - Store the domain and cooldown expiration timestamp in chrome.storage.local
+   - Use the structure:
+     blockedSites = {
+       "facebook.com": 1761120300000
+     }
+
+2. The cooldown duration should be configurable (default: 15 minutes).
+
+3. Listen for tab navigation using chrome.tabs.onUpdated.
+
+4. When a tab loads a URL:
+   - Extract its domain
+   - Check chrome.storage.local for blockedSites
+   - If the domain exists and current time is less than blockedUntil:
+       Redirect the tab to an internal extension page called blocked.html
+       Pass the domain and blockedUntil timestamp as query parameters
+
+Example redirect:
+chrome.runtime.getURL("blocked.html?site=facebook.com&until=1761120300000")
+
+5. Create clean, modular functions:
+   - getDomain(url)
+   - blockSite(domain, duration)
+   - isSiteBlocked(domain)
+   - handleTabUpdate(tabId, url)
+
+6. The code must:
+   - Use Manifest V3 service worker style
+   - Use chrome.storage.local (not localStorage)
+   - Be clean, readable, and production-quality
+   - Include comments explaining each step
+
+7. Do NOT use backend/server. Everything must work locally.
+
+8. Assume manifest.json already includes:
+   permissions: ["tabs", "storage"]
+   host_permissions: ["<all_urls>"]
+
+Output:
+Provide a complete background.js implementation for this cooldown block feature.
+
+
+
+You are a senior browser-extension engineer. Update an existing Chromium (Chrome/Brave) Manifest V3 extension that detects excessive browsing using rule-based stages and logs session data locally.
+
+Goal
+
+Make the implementation fully aligned with this design:
+
+Session ends when the active tab is closed OR after 5 minutes idle.
+
+When the user reaches Stage 2, show a Stage 2 Nudge UI (not a “cooldown” UI) with 3 options:
+
+Take a 5-minute break
+
+Snooze
+
+Close this tab
+
+Use a hybrid labeling approach:
+
+First, assign a provisional risk label (Low/Medium/High) from objective behavioral indicators.
+
+At session end, ask user 2 brief questions and use them to validate/adjust the provisional label.
+
+Save finalLabel as the ML target: 0=Low, 1=Medium, 2=High.
+
+Constraints
+
+Keep storage in chrome.storage.local (assume <200 sessions).
+
+Do NOT implement Logistic Regression yet.
+
+Keep Manifest V3 service worker compatibility and resilience.
+
+A) Stage 2 Nudge UI behavior
+1) When Stage 2 is reached
+
+Open blocked.html with query parameters: mode=stage_nudge&stage=2&domain=<domain>
+
+In Stage 2 nudge mode:
+
+Title should be “Take a Break” (NOT “Cooldown Active”)
+
+Message: “You’ve been browsing for a while. What would you like to do now?”
+
+Buttons:
+
+Take a 5-minute break
+
+Snooze
+
+Close this tab
+
+2) Button actions
+Take a 5-minute break
+
+Start cooldown block for the current domain for 5 minutes.
+
+Redirect user to blocked.html?mode=cooldown&domain=<domain> showing countdown.
+
+Log in session: breakTriggered=true, breakDurationSec=300, breakType="user_initiated".
+
+Snooze (10 minutes)
+
+DO NOT block the site.
+
+Store a snooze value: snoozes[domain] = snoozeUntilEpochMs where snoozeUntil = now + 10 minutes.
+
+For the duration of snooze:
+
+Suppress Stage 2 prompt (do not show Stage 2 nudge again for that domain).
+
+Tracking continues normally.
+
+Log in session: stage2Choice="snooze", snoozeMinutes=10.
+
+Close this tab
+
+Close the current tab via chrome.tabs.remove(tabId).
+
+Log in session: stage2Choice="close_tab".
+
+3) Anti-spam rule
+
+Show Stage 2 nudge only once per session per domain.
+
+If snoozed, do not show again until snooze expires.
+
+B) Hybrid labeling (finalLabel for ML target)
+1) Provisional label rules (objective)
+
+Compute a provisional label from behavioral indicators recorded in the session:
+
+activeTimeSec
+
+scrollCount (or scroll rate)
+
+tabSwitchCount
+
+revisitCount
+
+Use a simple scoring method:
+
+Normalize each feature to a 0–1 scale using reasonable caps (e.g., activeTimeSec cap=1800, scroll cap=200, switch cap=20, revisit cap=10).
+
+riskScore = 0.4*time + 0.2*scroll + 0.2*switch + 0.2*revisit
+
+Convert to provisional label:
+
+score < 0.33 → Low (0)
+
+0.33 ≤ score < 0.66 → Medium (1)
+
+score ≥ 0.66 → High (2)
+
+Store as:
+
+provisionalLabel (0/1/2)
+
+provisionalScore (0..1)
+
+2) End-of-session user questions
+
+At session end, if provisionalLabel is Medium or High:
+Open prompt.html?sessionId=<id> and ask:
+
+Q1: “Did you browse longer than you intended?” (yes/no/skip)
+
+Q2: “How hard was it to stop?” (1–5/skip)
+
+3) Convert answers into a user confirmation score
+
+Compute:
+
+q1Score: yes=1, no=0, skip=null
+
+q2Score: (value-1)/4 in range 0..1, skip=null
+If both present: userScore = average(q1Score, q2Score)
+If only one present: userScore = that score
+If none: userScore = null
+
+4) Adjust provisional label → finalLabel
+
+If userScore is null:
+
+finalLabel = provisionalLabel
+
+labelSource = "hybrid_skipped"
+
+Else apply adjustment:
+
+If provisionalLabel is Medium and userScore >= 0.75 → finalLabel = High
+
+If provisionalLabel is High and userScore <= 0.25 → finalLabel = Medium
+
+If provisionalLabel is Medium and userScore <= 0.25 → finalLabel = Low
+
+Otherwise finalLabel = provisionalLabel
+
+Set:
+
+finalLabel (0/1/2)
+
+labelSource = "hybrid_confirmed" or "hybrid_adjusted"
+
+C) Data schema changes (sessions)
+
+Extend session objects to include:
+
+provisionalLabel, provisionalScore
+
+finalLabel
+
+labelSource
+
+stage2Choice ("break_5"|"snooze"|"close_tab"|null)
+
+snoozeMinutes, snoozeUntil
+
+breakTriggered, breakType, breakDurationSec
+
+D) Export CSV updates
+
+Export columns must include:
+sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,stage,riskLevel,provisionalLabel,provisionalScore,finalLabel,labelSource,stage2Choice,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop
+
+E) Implementation notes
+
+Implement snoozes in chrome.storage.local under key "snoozes" as a map { domain: snoozeUntilEpochMs }.
+
+Before showing Stage 2 prompt, check:
+
+trackingEnabled is true
+
+not already shown for this session
+
+not snoozed (Date.now() < snoozes[domain])
+
+Ensure MV3 service worker can recover state.
+
+Update UI text in blocked.html so Stage 2 nudge is not labeled as “cooldown”.
+
+Update the existing codebase accordingly and provide the changed files.

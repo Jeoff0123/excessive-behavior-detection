@@ -1,0 +1,169 @@
+Codex Prompt (Senior Developer — Revised with Testing Controls)
+
+You are a senior browser-extension engineer. Build a Chromium (Chrome/Brave) Manifest V3 extension that implements Phase 1 (rule-based) detection of excessive browsing using Stage 0–4 time thresholds and maps them into 3 risk levels (Low/Medium/High). Do NOT implement Logistic Regression yet, but store session records and export CSV so Phase 2 ML can be added later.
+
+0) Deliverables
+Provide a complete, working MV3 extension with:
+- manifest.json
+- service worker: background.js
+- popup UI: popup.html, popup.js, popup.css
+- optional content.js for activity signals (only if needed; minimal + throttled)
+- blocked.html for cooldown block page
+- prompt.html (or a popup-based prompt UI) for hybrid questions
+- helpers (optional): storage.js, session.js, rules.js, export.js
+Include instructions to load as unpacked and test.
+
+1) Permissions (minimum necessary)
+Use minimal permissions:
+- storage, tabs, alarms, notifications, declarativeNetRequest, declarativeNetRequestWithHostAccess, activeTab
+- host_permissions: http://*/*, https://*/*
+Ignore internal URLs: chrome://, brave://, edge://, about:, chrome-extension://.
+
+2) Global controls (Testing + Safety)
+Implement these user controls in the popup:
+1) Tracking Toggle: ON/OFF
+- Store as trackingEnabled (boolean) in chrome.storage.local
+- When OFF: do not record activity, do not add active time, do not trigger warnings/cooldowns, do not show prompts.
+- When ON: resume normal behavior.
+
+2) Debug Mode Toggle: ON/OFF
+- Store as debugEnabled (boolean)
+- Only when debug is ON, show additional test buttons:
+  - Simulate +10 min (adds 600 seconds to the current domain’s “today” total for rapid stage testing)
+  - End Session Now (force-close the current session and persist it)
+  - Clear Today for Domain (reset today’s total for active domain)
+All debug actions must be clearly labeled “DEBUG”.
+
+3) Session lifecycle
+A session is per active tab + domain.
+- Start: when a tab becomes active and has a valid http/https URL.
+- End: when either:
+  1) the tab is closed, OR
+  2) 5 minutes idle (no activity)
+- Activity signals:
+  - tab activation (tabs.onActivated)
+  - navigation (tabs.onUpdated with URL change or webNavigation.onCommitted)
+  - user interaction from content script: scroll, click, keydown (throttle to avoid spam)
+- If session ended by idle and activity resumes, start a new session.
+
+4) MV3 service worker resilience
+Service workers can be suspended. Ensure correctness:
+- Keep minimal in-memory “current session” state, but persist critical fields so state can recover.
+- Use chrome.alarms as a periodic tick (e.g., every 30 seconds) to update active time safely.
+- Count active time only when:
+  - trackingEnabled is true
+  - tab is focused
+  - URL is valid (http/https)
+  - domain is not currently blocked (cooldown)
+- Exclude idle time from activeTimeSec.
+
+5) Data model (storage)
+Use chrome.storage.local only (assume <200 sessions). Store:
+- trackingEnabled (boolean, default true)
+- debugEnabled (boolean, default false)
+- sessions (array, keep max 200 newest)
+- domainTotals (map { domain: { dateKey: "YYYY-MM-DD", activeTimeSecToday } })
+- visitedDomainsToday (set-like structure { dateKey: "YYYY-MM-DD", domains: { [domain]: true } })
+- cooldowns (map { domain: cooldownUntilEpochMs })
+- lastResetDate (YYYY-MM-DD)
+- optionally currentSessionState for recovery
+
+Session object schema
+{
+  sessionId: string,
+  domain: string,
+  url: string,
+  tabId: number,
+  startTime: number,
+  endTime: number,
+  endReason: "tab_closed" | "idle_5min" | "forced_end",
+
+  activeTimeSec: number,
+  scrollCount: number,
+  tabSwitchCount: number,
+  revisitCount: number,
+
+  stage: 0|1|2|3|4,
+  riskLevel: 0|1|2, // 0=Low, 1=Medium, 2=High
+
+  promptShown: boolean,
+  q1LongerThanIntended: "yes"|"no"|"skip"|null,
+  q2HardToStop: number|null, // 1-5 or null
+  labelSource: "rule_based"
+}
+
+6) Stage thresholds (Phase 1)
+Compute Stage using active time today for the current domain:
+- Stage 0: < 30 minutes
+- Stage 1: 30–59 minutes
+- Stage 2: 60–119 minutes
+- Stage 3: 120–239 minutes
+- Stage 4: ≥ 240 minutes
+
+Map to risk:
+- Stage 0 → Low (0)
+- Stage 1–2 → Medium (1)
+- Stage 3–4 → High (2)
+
+Persist stage and riskLevel in the session at end.
+
+7) Revisit counting (simple, defensible)
+revisitCount increments when the user returns to a domain that was already visited earlier on the same day. Use visitedDomainsToday to track this.
+
+8) Interventions (notifications + cooldown)
+Trigger interventions only when trackingEnabled is true.
+
+- When crossing into Stage 1: gentle notification (once per domain per day)
+- Stage 2: stronger notification (once per domain per day)
+- Stage 3: strong notification + provide “Start cooldown” action button
+- Stage 4: automatically enforce cooldown
+
+Cooldown:
+- Duration constant: 10 minutes
+- During cooldown, navigation to that domain redirects to blocked.html showing remaining time.
+- Implement blocking using declarativeNetRequest dynamic rules per domain.
+- Use stable rule IDs per domain (hash domain).
+- Remove/disable rules when cooldown expires (alarm + safety check on periodic tick).
+
+9) Hybrid prompt (data collection only)
+At session end, if riskLevel is Medium or High and trackingEnabled is true:
+- show a notification with “Rate Session”
+- clicking opens prompt.html (or opens popup into rating mode)
+- Questions:
+  1) “Did you browse longer than you intended?” (Yes/No/Skip)
+  2) “How hard was it to stop?” (1–5/Skip)
+Store answers into the matching session record by sessionId.
+Do not compute ML labels yet; keep labelSource="rule_based".
+
+10) Popup UI
+Popup must show:
+- Tracking toggle (ON/OFF) and current status
+- Current domain and active time today
+- Stage + mapped risk (Low/Medium/High)
+- Cooldown status (remaining time if active)
+Buttons:
+- Export CSV
+- Clear Data (confirm)
+Debug-only buttons (visible only when debugEnabled is true):
+- Simulate +10 min
+- End Session Now
+- Clear Today for Domain
+
+11) Export CSV
+Export sessions to CSV:
+sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,stage,riskLevel,q1LongerThanIntended,q2HardToStop
+Trigger download from popup.
+
+12) Edge cases
+- Avoid double-counting tab switches (count only on actual domain/tab change events)
+- Don’t track extension pages or blocked.html
+- Daily reset of totals using lastResetDate
+- Persist session state so service worker restarts don’t create duplicates
+- Ensure trackingEnabled=false stops all alarms/event handlers from recording (handlers may still run, but must early-return).
+
+13) Code quality
+- Modularize logic (storage.js, session.js, rules.js, etc.)
+- Clear comments explaining stage thresholds and risk mapping
+- Provide a short README with testing steps, including how to use Debug mode.
+
+Build the full code now.

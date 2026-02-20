@@ -1,0 +1,62 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Excessive Web Browsing Detector</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>Excessive Web Browsing Detector</h1>
+
+    <section class="card">
+      <div class="row space">
+        <span>Tracking</span>
+        <label class="switch">
+          <input id="trackingToggle" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="row space">
+        <span>Debug Mode</span>
+        <label class="switch">
+          <input id="debugToggle" type="checkbox" />
+          <span class="slider"></span>
+        </label>
+      </div>
+      <p id="statusText" class="muted"></p>
+    </section>
+
+    <section class="card">
+      <p><strong>Current domain:</strong> <span id="domainText">-</span></p>
+      <p><strong>Active time today:</strong> <span id="timeText">0m 0s</span></p>
+      <p><strong>Stage:</strong> <span id="stageText">0</span></p>
+      <p><strong>Risk:</strong> <span id="riskText">Low</span></p>
+      <p><strong>Cooldown:</strong> <span id="cooldownText">Inactive</span></p>
+      <p><strong>Counter status:</strong> <span id="counterStatusText">-</span></p>
+    </section>
+
+    <section id="debugActions" class="card hidden">
+      <h2>DEBUG</h2>
+      <button id="simulateBtn" class="btn">DEBUG Simulate +10 min</button>
+      <button id="endSessionBtn" class="btn">DEBUG End Session Now</button>
+      <button id="clearTodayBtn" class="btn">DEBUG Clear Today for Domain</button>
+    </section>
+
+    <section class="card actions">
+      <button id="exportBtn" class="btn">Export CSV</button>
+      <button id="clearDataBtn" class="btn danger">Clear Data</button>
+    </section>
+
+    <section class="card">
+      <p class="privacy-note">
+        Privacy: Data stays local in your browser storage. No server upload is used.
+        This extension is a digital well-being aid, not strict enforcement.
+      </p>
+    </section>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

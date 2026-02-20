@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Session Action</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      box-sizing: border-box;
+      background: linear-gradient(150deg, #f2ebdf, #e8ded0);
+      color: #1d1b16;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .card {
+      max-width: 760px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #d6cab8;
+      border-radius: 14px;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+    }
+
+    p {
+      margin: 8px 0;
+      color: #5f584f;
+      font-size: 17px;
+    }
+
+    .domain {
+      color: #8f301c;
+      font-weight: 700;
+      word-break: break-word;
+    }
+
+    .time {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1d1b16;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .actions button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #256d5a;
+      color: #fff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .actions button.alt {
+      background: #6b7280;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .status {
+      margin-top: 10px;
+      color: #5f584f;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1 id="titleText">Cooldown Active</h1>
+    <p id="messageText">This domain is temporarily blocked to interrupt excessive browsing.</p>
+    <p class="domain" id="site">Unknown domain</p>
+    <p class="time" id="remaining">Checking time...</p>
+
+    <section id="nudgeActions" class="actions hidden">
+      <button id="takeBreakBtn" type="button">Take a 5-minute break</button>
+      <button id="snoozeBtn" type="button">Snooze</button>
+      <button id="closeTabBtn" class="alt" type="button">Close this tab</button>
+    </section>
+
+    <p id="actionStatus" class="status"></p>
+  </main>
+
+  <script src="blocked.js"></script>
+</body>
+</html>
