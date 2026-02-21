@@ -1,0 +1,31 @@
+﻿flowchart TD
+    A([Start / New Activity Detected]) --> B{Is domain trackable?}
+    B -- No --> Z([Do nothing])
+    B -- Yes --> C[Update session signals<br/>(activeTimeSec, scrollCount, tabSwitchCount, revisitCount)]
+
+    C --> D[Compute per-domain active time today<br/>(mode-adjusted thresholds)]
+    D --> E[Compute Stage (0-4) and RiskLevel (0/1/2)]
+
+    E --> F{Cooldown active for this domain?}
+    F -- Yes --> G[Redirect to Block Page<br/>show countdown] --> H{Cooldown expired?}
+    H -- No --> G
+    H -- Yes --> I[Allow access<br/>resume tracking] --> C
+
+    F -- No --> J{Crossed into Stage >= 3?<br/>(previousStage < 3 and nextStage >= 3)}
+    J -- Yes --> K[Start cooldown block<br/>(set cooldown + redirect)] --> G
+
+    J -- No --> L{nextStage == 2 AND prompt allowed?<br/>(once/session, not snoozed, no cooldown)}
+    L -- Yes --> O[Show Stage 2 Prompt:<br/>Break 5m / Snooze / Close Tab]
+    L -- No --> M{Crossed into Stage 1 AND warn allowed?<br/>(once/day per domain)}
+    M -- Yes --> N[Show non-intrusive warning] --> C
+    M -- No --> C
+
+    O --> P{User choice}
+    P -- Snooze --> Q[Suppress Stage 2 prompt for snooze window<br/>(with snooze cap)] --> C
+    P -- Close Tab --> R[Close current tab] --> S[End session + log summary]
+    P -- Break 5m --> T[Start 5-min cooldown] --> U[Wait return window (10 min)]
+    U --> V{User returns within 10 min?}
+    V -- Yes --> W[End prior session as break_resumed_new_session<br/>start new session] --> C
+    V -- No --> X[End session as break_no_return_10m] --> S
+
+    S --> Y[Write session record to chrome.storage.local] --> AA([Idle / wait for next activity])

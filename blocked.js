@@ -145,7 +145,9 @@ function renderStage2Nudge(site, sourceTabId, promptTone, riskMode) {
     setButtonsDisabled(true);
     try {
       const response = await sendStage2Action(action, site, sourceTabId, {
-        closeOnSuccess: options.closeOnSuccess
+        closeOnSuccess: options.closeOnSuccess,
+        closeDelayMs: options.closeDelayMs,
+        closeWhenResult: options.closeWhenResult
       });
       const result = response?.result || (response?.actionFailed ? "noop" : "success");
 

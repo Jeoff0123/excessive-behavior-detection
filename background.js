@@ -31,6 +31,8 @@ const SNOOZE_WINDOW_MS = 60 * 60 * 1000;
 const BREAK_RETURN_WINDOW_MS = 10 * 60 * 1000;
 const SESSION_SCHEMA_VERSION = 3;
 const END_REASON_IDLE = "idle_timeout";
+const END_REASON_SESSION_SWITCH = "session_switch";
+const END_REASON_NON_TRACKABLE_NAV = "non_trackable_navigation";
 const QUALITY_DEFAULT_MIN_TRAIN_ROWS = 60;
 const QUALITY_DEFAULT_MIN_CLASS_ROWS = 10;
 const QUALITY_MIN_TRAIN_ROWS_OPTIONS = [30, 40, 60, 80, 100, 120];
@@ -51,6 +53,16 @@ const BADGE_COLOR_BY_STAGE = {
 
 let currentSession = null;
 const endingSessionIds = new Set();
+let initializeInFlight = null;
+
+function scheduleInitialize() {
+  if (!initializeInFlight) {
+    initializeInFlight = initialize().finally(() => {
+      initializeInFlight = null;
+    });
+  }
+  return initializeInFlight;
+}
 
 function isTrackableUrl(url) {
   try {
@@ -257,7 +269,7 @@ function buildDataQualityReport(sessions, qualityConfig = {}) {
   const nonDebugCount = trainingCount + weakCount;
   const debugRatio = totalCount > 0 ? debugCount / totalCount : 0;
   const forcedEndRatio = nonDebugCount > 0 ? forcedEndCount / nonDebugCount : 0;
-  const responseRate = promptEligibleCount > 0 ? promptAnsweredCount / promptEligibleCount : 1;
+  const responseRate = promptEligibleCount > 0 ? promptAnsweredCount / promptEligibleCount : 0;
   const disagreementRate =
     comparablePromptRows > 0 ? disagreementCount / comparablePromptRows : 0;
 
@@ -600,16 +612,29 @@ async function applySnoozeWithCap(domain, minutes) {
     .sort((a, b) => a - b);
 
   if (recent.length >= SNOOZE_LIMIT_PER_HOUR) {
+    const waitMs = Math.max(0, recent[0] + SNOOZE_WINDOW_MS - now);
+    // Anti-spam guard: if cap is reached, mute repeated Stage 2 nudges briefly.
+    // This does not grant another snooze; it only prevents immediate re-prompt loops.
+    // Softer behavior: short anti-spam mute only (1-2 minutes), not a long pseudo-snooze.
+    const capSuppressionMs = Math.max(60 * 1000, Math.min(waitMs, 2 * 60 * 1000));
+    const capSuppressedUntil = now + capSuppressionMs;
+    const existingUntil = Number(state.snoozes?.[domain] || 0);
+    if (!state.snoozes || typeof state.snoozes !== "object") {
+      state.snoozes = {};
+    }
+    state.snoozes[domain] = Math.max(existingUntil, capSuppressedUntil);
     state.snoozeHistory[domain] = recent;
     await patchState({
+      [STORAGE_KEYS.snoozes]: state.snoozes,
       [STORAGE_KEYS.snoozeHistory]: state.snoozeHistory,
       [STORAGE_KEYS.lastResetDate]: state.lastResetDate
     });
-    const waitMs = Math.max(0, recent[0] + SNOOZE_WINDOW_MS - now);
     return {
       allowed: false,
       count: recent.length,
-      waitMs
+      waitMs,
+      capSuppressedUntil,
+      capSuppressionMs
     };
   }
 
@@ -1184,7 +1209,7 @@ async function syncToActiveTab(tab, source = "unknown") {
           return;
         }
       }
-      await endSession("forced_end");
+      await endSession(END_REASON_NON_TRACKABLE_NAV);
     }
     return;
   }
@@ -1209,7 +1234,7 @@ async function syncToActiveTab(tab, source = "unknown") {
     await persistCurrentSession();
   }
 
-  await endSession("forced_end");
+  await endSession(END_REASON_SESSION_SWITCH);
   await startSessionFromTab(tab);
 }
 
@@ -1367,14 +1392,14 @@ async function initialize() {
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  initialize().catch((error) => console.error("Install init failed", error));
+  scheduleInitialize().catch((error) => console.error("Install init failed", error));
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  initialize().catch((error) => console.error("Startup init failed", error));
+  scheduleInitialize().catch((error) => console.error("Startup init failed", error));
 });
 
-initialize().catch((error) => console.error("Init failed", error));
+scheduleInitialize().catch((error) => console.error("Init failed", error));
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== ALARM_TICK) {
@@ -1861,10 +1886,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await updateActionBadge();
 
         if (actionFailed) {
+          const antiSpamHint =
+            Number(snoozeDecision.capSuppressionMs || 0) > 0
+              ? ` Stage 2 nudges are muted for ${formatMsToMinSec(snoozeDecision.capSuppressionMs)} to prevent repeated prompts.`
+              : "";
           sendResponse({
             ok: true,
             result: "noop",
-            message: `Snooze limit reached (${SNOOZE_LIMIT_PER_HOUR}/hour). Try again in ${formatMsToMinSec(snoozeDecision.waitMs)}, or take a 5-minute break.`,
+            message: `Snooze limit reached (${SNOOZE_LIMIT_PER_HOUR}/hour). Try again in ${formatMsToMinSec(snoozeDecision.waitMs)}, or take a 5-minute break.${antiSpamHint}`,
             actionFailed: true,
             failReason,
             snoozeCount: snoozeDecision.count,

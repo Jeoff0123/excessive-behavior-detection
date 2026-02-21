@@ -1,0 +1,255 @@
+﻿Chapter 3
+METHODOLOGY
+
+This chapter presents the methodology used to develop and validate the Phase 1 implementation of the proposed Chromium-based extension for excessive web browsing detection. It details the system requirements, documentation artifacts, software and process design, development and testing activities, prototype description, implementation workflow, and current implementation results. The chapter documents only implemented functionality and keeps unresolved model-evaluation outputs as placeholders.
+
+Requirements Analysis
+
+The system requirements were derived from the study objective to detect excessive web browsing risk using behavioral indicators and to support digital well-being through local, privacy-preserving intervention.
+
+1) Functional Requirements
+1. The extension shall track session-level behavioral indicators: activeTimeSec, scrollCount, tabSwitchCount, and revisitCount.
+2. The extension shall compute stage-based risk progression (Stage 0 to Stage 4) using mode-adjusted thresholds.
+3. The extension shall provide Stage 2 intervention actions: Take a 5-minute break, Snooze, and Close tab.
+4. The extension shall enforce cooldown blocking at higher stages.
+5. The extension shall support hybrid labeling: provisional rule-based label plus end-session user confirmation/adjustment.
+6. The extension shall export structured session records to CSV.
+7. The extension shall display dataset readiness and data-quality diagnostics in the popup.
+8. The extension shall tag debug-generated rows for exclusion from model training.
+
+2) Non-Functional Requirements
+1. Privacy: all tracking and processing shall remain local (chrome.storage.local).
+2. Compatibility: implementation shall run under Chromium Manifest V3 service worker constraints.
+3. Usability: prompts should reduce fatigue through gating and suppression logic.
+4. Integrity: training preparation shall include schema/rule consistency and leakage safeguards.
+5. Positioning: system behavior shall support digital well-being and self-regulation, not strict enforcement.
+
+3) Operational Constraints
+1. Session behavior depends on active tab state, idle state, and tracking toggle.
+2. Dataset quality depends on user interaction and prompt completion.
+3. Phase 2 personalization (adaptive baseline learning) is not part of the implemented Phase 1 scope.
+
+Requirements Documentation
+
+This section formalizes actors, interfaces, and data contracts used by the implemented system.
+
+Actors and Responsibilities
+| Actor | Responsibility |
+|---|---|
+| User | Browses normally, responds to interventions/prompts, controls settings |
+| Background Service Worker (background.js) | Session state, stage logic, interventions, labeling, quality report |
+| Content Script (content.js) | Sends activity signals (e.g., scroll/activity ping) |
+| Popup UI (popup.html, popup.js) | Settings, state display, dataset health, export/debug controls |
+| Blocked/Nudge UI (blocked.html, blocked.js) | Cooldown display and Stage 2 actions |
+| Prompt UI (prompt.html, prompt.js) | End-session self-report capture |
+| Split Script (scripts/time_split_guard.mjs) | Offline filtering, quality gate, leak-safe train/test split |
+
+Input and Output Artifacts
+| Type | Artifact |
+|---|---|
+| Inputs | Activity pings, tab events, navigation events, prompt answers, popup settings |
+| Stored State | Session state, domain totals, snoozes, cooldowns, quality thresholds |
+| Output | CSV session export |
+| Output | Dataset Health report (totals, distributions, rates, thresholds, blockingIssues, warnings) |
+| Output | train_split.csv, test_split.csv, split_report.json |
+
+Session CSV Interface (Export Contract)
+The session CSV schema includes behavior, intervention, and labeling fields. Core exported columns include:
+sessionSchemaVersion,sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,revisitCountMode,stage,riskLevel,mode,ruleVersion,isDebugRow,debugSources,idleTimeoutMinUsed,provisionalLabel,provisionalScore,finalLabel,labelSource,labelConfidence,promptSkipped,stage2Choice,stage2ActionFailed,stage2FailReason,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop
+
+Internal Message Interfaces (Implemented)
+| Message Type | Purpose |
+|---|---|
+| GET_POPUP_STATE | Retrieves live status and dataset health |
+| SET_TRACKING | Enables/disables tracking |
+| SET_MODE | Sets browsing mode (Default/Study-Research/Entertainment) |
+| SET_IDLE_TIMEOUT | Sets idle timeout (3/5/10 min) |
+| SET_QUALITY_THRESHOLDS | Sets quality gate minimum row thresholds |
+| STAGE2_NUDGE_ACTION | Handles break/snooze/close-tab actions |
+| SAVE_PROMPT_ANSWERS | Saves end-session prompt responses |
+| EXPORT_CSV | Returns CSV payload |
+| CLEAR_DATA | Clears local stored data |
+
+Design of Software, System, Product and or Processes
+
+1) System Architecture Design
+The system follows an event-driven extension architecture:
+1. content.js detects activity and sends pings.
+2. background.js manages session lifecycle and intervention logic.
+3. rules.js computes stage thresholds and risk mapping.
+4. storage.js provides persisted local state.
+5. popup.js presents controls and quality diagnostics.
+6. blocked.js handles cooldown UI and Stage 2 action flows.
+7. prompt.js applies end-session prompt capture and label updates.
+8. export.js serializes records for dataset creation.
+9. scripts/time_split_guard.mjs prepares model-ready train/test sets.
+
+2) Process Flow Design
+1. Start/continue session when a valid trackable tab is active.
+2. Accrue active time only when counting conditions are valid.
+3. Compute stage and risk from mode-adjusted thresholds.
+4. Trigger interventions at stage transitions.
+5. End session on tab_closed, idle_timeout, forced_end, or break_no_return_10m.
+6. Compute provisional label from behavior features.
+7. Ask end-session questions only for eligible natural-end medium/high sessions.
+8. Compute final hybrid label and confidence.
+9. Export rows and evaluate dataset readiness.
+10. Apply split safeguards before model training.
+
+Feature Definition Table
+| Feature | Type | Description |
+|---|---|---|
+| activeTimeSec | Numeric | Accumulated active session time |
+| scrollCount | Numeric | Scroll activity count |
+| tabSwitchCount | Numeric | Number of tab switches |
+| revisitCount | Numeric | Frequency-style revisit signal |
+| stage | Ordinal | Stage 0-4 from threshold rules |
+| riskLevel | Ordinal | Low/Medium/High mapping |
+| mode | Categorical | Default, Study-Research, Entertainment |
+
+Labeling and Confidence Policy
+| Field/Policy | Implemented Behavior |
+|---|---|
+| provisionalLabel | Behavior-based rule output |
+| End-session prompt | Intention + difficulty stopping questions |
+| finalLabel | Confirmed/adjusted hybrid output |
+| labelSource | hybrid_confirmed, hybrid_adjusted, hybrid_skipped |
+| labelConfidence | High: confirmed, adjusted; Weak: rule_only, skipped, pending |
+| Default training policy | Use high-confidence rows as primary dataset |
+| Debug isolation | isDebugRow and debugSources used to exclude debug rows |
+
+Dataset Quality Gate Thresholds
+| Check | Rule |
+|---|---|
+| Min training rows | Configurable, default target used in workflow: 60 |
+| Min rows/class | Configurable, default target used in workflow: 10 |
+| Min response rate | 0.40 |
+| Max disagreement rate | 0.60 |
+| Min comparable rows for disagreement check | 10 |
+| Max debug ratio warning | 0.15 |
+| Max forced-end ratio warning | 0.85 |
+| Mixed schema/rule handling | Blocking issue if mixed in selected training set |
+
+Split Safeguards
+| Safeguard | Implementation |
+|---|---|
+| Schema filter | --schema |
+| Rule filter | --rule |
+| Debug exclusion | --excludeDebug true |
+| Label policy | --labelPolicy high_confidence or all_weighted |
+| Weak label weight | --weakWeight |
+| Quality enforcement | --enforceQuality true |
+| Time-ordered split | Sort by startTime and split by ratio |
+| Leakage guard | Fail if train/test share sessionId |
+
+Development and Testing (where applicable)
+
+Development Approach
+The implementation followed an incremental pipeline:
+1. Behavioral tracking and local state persistence
+2. Stage/risk computation and interventions
+3. Hybrid labeling and prompt flow
+4. Export schema stabilization
+5. Dataset health and quality gate integration
+6. Split safeguards for model preparation
+
+Test Scenarios and Outcomes
+| Scenario | Expected Behavior | Outcome |
+|---|---|---|
+| Stage progression | Stage updates as active time increases | Implemented |
+| Stage 2 prompt fatigue control | Stage 2 nudge shown once per session | Implemented |
+| Snooze behavior | Suppress nudge window and apply cap/hour | Implemented |
+| Break behavior | 5-minute break with return window handling | Implemented |
+| Close-tab robustness | Fail gracefully when no valid target tab | Implemented |
+| End-session prompt gating | Prompt only on eligible medium/high natural-end sessions | Implemented |
+| Debug row isolation | Debug-generated rows tagged for exclusion | Implemented |
+| CSV integrity | Export includes required labeling and debug columns | Implemented |
+| Split leakage guard | Detect/prevent shared sessionId across sets | Implemented |
+
+Validation Artifacts
+1. scripts/_tmp_split/split_report.json
+2. scripts/_tmp_split/train_split.csv
+3. scripts/_tmp_split_verify/split_report.json
+4. C:\Users\Jeoff\Downloads\sessions_2026-02-21.csv
+
+Description of the Prototype (where applicable)
+
+The prototype is composed of three user-facing interfaces and one background processing engine:
+1. Popup Interface: tracking toggle, debug toggle, mode selector, idle timeout selector, dataset health card, export and clear-data controls.
+2. Blocked/Nudge Interface: cooldown countdown view for blocked domains and Stage 2 action view (break_5, snooze, close_tab).
+3. Prompt Interface: end-session questions for hybrid label refinement and session-specific answer submission.
+4. Behavioral Positioning: the prototype applies friction, awareness prompts, and temporary blocking logic for self-regulation. It is a digital well-being aid, not a bypass-proof enforcement system.
+
+Implementation Plan (where needed)
+
+Data Collection Procedure
+1. Keep tracking enabled during normal browsing.
+2. Keep debug mode disabled for production data collection.
+3. Prefer natural session endings to increase prompt-eligible samples.
+4. Export CSV snapshots regularly and archive by date.
+
+Data Preparation Procedure
+1. Select a consistent schema/rule subset: sessionSchemaVersion=3 and ruleVersion=phase1_mode_v1.
+2. Run split safeguard command:
+node scripts/time_split_guard.mjs --in "C:\Users\Jeoff\Downloads\sessions_2026-02-21.csv" --outDir "./splits" --trainRatio 0.8 --schema 3 --rule phase1_mode_v1 --excludeDebug true --labelPolicy high_confidence --minRows 60 --minClassRows 10 --minResponseRate 0.4 --maxDisagreementRate 0.6 --enforceQuality true
+3. Validate split_report.json before modeling.
+4. Use produced train_split.csv and test_split.csv only when quality gate passes.
+
+Model Handoff Procedure
+1. Target: finalLabel
+2. Core predictors: activeTimeSec, scrollCount, tabSwitchCount, revisitCount (optional encoded mode)
+3. Primary run: high_confidence policy
+4. Optional comparison run: all_weighted with weak-row weighting
+
+Implementation Results (where applicable)
+
+This section summarizes currently available implementation outcomes from actual artifacts.
+
+Current Exported Dataset Snapshot (sessions_2026-02-21.csv)
+- Total rows: 119
+- Schema distribution: Schema 2 = 40, Schema 3 = 79
+- Rule version distribution: phase1_legacy = 40, phase1_mode_v1 = 79
+- Label confidence distribution (all rows): rule_only = 114, confirmed = 4, skipped = 1
+- Final label distribution (all rows): Low (0) = 117, Medium (1) = 2, High (2) = 0
+- End reason distribution (all rows): forced_end = 106, idle_timeout = 7, tab_closed = 6
+- Debug-tagged rows: 1
+
+Phase 1 Target Subset Snapshot (schema=3, rule=phase1_mode_v1)
+- Rows: 79
+- Debug rows in subset: 1
+- Non-debug rows in subset: 78
+- Label confidence in subset: rule_only = 74, confirmed = 4, skipped = 1
+- Final label in subset: Low (0) = 78, Medium (1) = 1, High (2) = 0
+- End reasons in subset: forced_end = 69, tab_closed = 5, idle_timeout = 5
+
+Prompt Quality Indicators (derived from current subset)
+- Prompt-eligible rows: 5
+- Prompt-answered rows: 4 (response rate approximately 80%)
+- Comparable prompt rows: 4
+- Provisional/final disagreements: 0
+
+Split Artifact Evidence
+From scripts/_tmp_split/split_report.json:
+- Input file: sessions_2026-02-20 (1).csv
+- totalInputRows: 48
+- totalFilteredRows: 8
+- trainRows: 6
+- testRows: 2
+- Train range: 2026-02-20T13:03:32.866Z to 2026-02-20T13:10:00.715Z
+- Test range: 2026-02-20T13:10:01.710Z to 2026-02-20T13:10:07.031Z
+
+Current Readiness Interpretation
+The system implementation is operational for collection, labeling, quality checking, and split preparation. However, the current dataset is not yet suitable for final Logistic Regression evaluation under strict quality criteria because:
+1. High-confidence rows are still limited.
+2. Class distribution is highly imbalanced (currently concentrated in Low risk).
+3. Additional Medium/High confirmed samples are needed for robust multiclass training.
+
+Final Model Evaluation Outputs
+- Accuracy: [TO BE FILLED]
+- Per-class precision: [TO BE FILLED]
+- Per-class recall: [TO BE FILLED]
+- Per-class F1-score: [TO BE FILLED]
+- Macro F1-score: [TO BE FILLED]
+- Balanced accuracy: [TO BE FILLED]
+- Matthews Correlation Coefficient (MCC): [TO BE FILLED]
+- Confusion matrix: [TO BE FILLED]

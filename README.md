@@ -34,7 +34,9 @@ This tool is a digital well-being aid, not an enforcement or security control.
 - Session ends:
   - tab closed
   - idle timeout (`idle_timeout`, configurable: 3/5/10 minutes, default 5)
-  - forced end (switch/navigation/debug)
+  - session switch (`session_switch`) when active tracking moves to a different tab/domain
+  - non-trackable navigation (`non_trackable_navigation`) when active tracking moves to a non-http(s) page
+  - forced end (`forced_end`) for explicit termination paths (e.g., Tracking OFF, debug end-session)
   - break return window expired (`break_no_return_10m`)
 - Revisit signal:
   - `revisitCount` stores prior visits to the same domain on the same day (frequency-style)
@@ -47,6 +49,7 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - Stage 2 nudge shown once per session
   - Snooze is a per-domain cross-session suppression window (10 minutes)
   - Snooze cap: max 3 snoozes per domain per hour
+  - If snooze cap is reached, Stage 2 nudges are briefly muted (anti-spam guard)
   - Take a 5-minute break pauses the current session and starts a return window
   - Return is user-driven activity (interaction or tab switch), not automatic redirect
   - If no valid browsing activity returns within 10 minutes after break, session ends with `break_no_return_10m`

@@ -1,0 +1,260 @@
+﻿<mxfile host="app.diagrams.net" modified="2026-02-21T00:00:00.000Z" agent="Codex" version="29.5.1">
+  <diagram id="fig32flow" name="Figure 3.2 Session Lifecycle Flow">
+    <mxGraphModel dx="1800" dy="1200" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="A" value="Start / New Activity Detected" style="ellipse;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="860" y="20" width="260" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="B" value="Is domain trackable?" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="900" y="120" width="180" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="Z" value="Do nothing" style="ellipse;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="520" y="135" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="C" value="Update session signals&#10;(activeTimeSec, scrollCount, tabSwitchCount, revisitCount)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="250" width="380" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="D" value="Compute per-domain active time today&#10;(mode-adjusted thresholds)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="360" width="380" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="E" value="Compute Stage (0-4) and RiskLevel (0/1/2)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="460" width="380" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="F" value="Cooldown active for this domain?" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="860" y="560" width="260" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="G" value="Redirect to Block Page&#10;show countdown" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="560" width="300" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="H" value="Cooldown expired?" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="670" width="180" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="I" value="Allow access&#10;resume tracking" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="800" width="300" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="J" value="Crossed into Stage &gt;= 3?&#10;(previousStage &lt; 3 and nextStage &gt;= 3)" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="700" width="380" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="K" value="Start cooldown block&#10;(set cooldown + redirect)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="920" width="300" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="L" value="nextStage == 2 AND prompt allowed?&#10;(once/session, not snoozed, no cooldown)" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="850" width="380" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="M" value="Crossed into Stage 1 AND warn allowed?&#10;(once/day per domain)" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="360" y="860" width="320" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="N" value="Show non-intrusive warning" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="360" y="1010" width="320" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="O" value="Show Stage 2 Prompt:&#10;Break 5m / Snooze / Close Tab" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1010" width="380" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="P" value="User choice" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="900" y="1120" width="180" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="Q" value="Suppress Stage 2 prompt for snooze window&#10;(with snooze cap)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="340" y="1125" width="360" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="R" value="Close current tab" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1250" width="180" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="S" value="End session + log summary" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1340" width="380" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="T" value="Start 5-min cooldown" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="1125" width="300" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="U" value="Wait return window (10 min)" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="1220" width="300" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="V" value="User returns within 10 min?" style="rhombus;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="1320" width="260" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="W" value="End prior session as break_resumed_new_session&#10;Start new session" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1680" y="1335" width="400" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="X" value="End session as break_no_return_10m" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="1470" width="300" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="Y" value="Write session record to chrome.storage.local" style="rounded=1;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1435" width="380" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="AA" value="Idle / wait for next activity" style="ellipse;whiteSpace=wrap;html=1;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="840" y="1530" width="300" height="70" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" edge="1" parent="1" source="A" target="B" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="B" target="Z" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="B" target="C" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="C" target="D" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="D" target="E" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="E" target="F" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="F" target="G" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="G" target="H" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="H" target="G" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1620" y="620"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="H" target="I" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="I" target="C" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="760" y="840"/>
+              <mxPoint x="760" y="295"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="F" target="J" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="J" target="K" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="K" target="G" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1600" y="960"/>
+              <mxPoint x="1600" y="600"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="J" target="L" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="L" target="O" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="L" target="M" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="M" target="N" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="M" target="C" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="915"/>
+              <mxPoint x="300" y="295"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="N" target="C" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="300" y="1045"/>
+              <mxPoint x="300" y="295"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="O" target="P" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="P" target="Q" style="endArrow=block;html=1;rounded=0;" value="Snooze">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="Q" target="C" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="1170"/>
+              <mxPoint x="260" y="295"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="P" target="R" style="endArrow=block;html=1;rounded=0;" value="Close Tab">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e25" edge="1" parent="1" source="R" target="S" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e26" edge="1" parent="1" source="P" target="T" style="endArrow=block;html=1;rounded=0;" value="Break 5m">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e27" edge="1" parent="1" source="T" target="U" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e28" edge="1" parent="1" source="U" target="V" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e29" edge="1" parent="1" source="V" target="W" style="endArrow=block;html=1;rounded=0;" value="Yes">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e30" edge="1" parent="1" source="W" target="C" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2140" y="1380"/>
+              <mxPoint x="2140" y="295"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e31" edge="1" parent="1" source="V" target="X" style="endArrow=block;html=1;rounded=0;" value="No">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e32" edge="1" parent="1" source="X" target="S" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1210" y="1505"/>
+              <mxPoint x="1210" y="1375"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e33" edge="1" parent="1" source="S" target="Y" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e34" edge="1" parent="1" source="Y" target="AA" style="endArrow=block;html=1;rounded=0;" value="">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
