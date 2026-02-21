@@ -9,6 +9,12 @@ const stageText = document.getElementById("stageText");
 const riskText = document.getElementById("riskText");
 const cooldownText = document.getElementById("cooldownText");
 const counterStatusText = document.getElementById("counterStatusText");
+const qualityMinTrainRowsSelect = document.getElementById("qualityMinTrainRowsSelect");
+const qualityMinClassRowsSelect = document.getElementById("qualityMinClassRowsSelect");
+const qualityReadyText = document.getElementById("qualityReadyText");
+const qualityRowsText = document.getElementById("qualityRowsText");
+const qualityClassText = document.getElementById("qualityClassText");
+const qualityIssuesText = document.getElementById("qualityIssuesText");
 const debugActions = document.getElementById("debugActions");
 const simulateBtn = document.getElementById("simulateBtn");
 const endSessionBtn = document.getElementById("endSessionBtn");
@@ -67,6 +73,73 @@ function formatCounterStatus(reason, isActive) {
   return map[reason] || "Paused";
 }
 
+function setNumericSelectOptions(selectEl, values, selectedValue) {
+  if (!selectEl || !Array.isArray(values) || !values.length) {
+    return;
+  }
+  const normalizedValues = values
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.floor(value));
+  if (!normalizedValues.length) {
+    return;
+  }
+
+  const uniqueValues = Array.from(new Set(normalizedValues));
+  if (selectEl.options.length !== uniqueValues.length) {
+    selectEl.innerHTML = "";
+    for (const value of uniqueValues) {
+      const option = document.createElement("option");
+      option.value = String(value);
+      option.textContent = String(value);
+      selectEl.append(option);
+    }
+  }
+  selectEl.value = String(selectedValue);
+}
+
+function renderQualityReport(report) {
+  if (!qualityReadyText || !qualityRowsText || !qualityClassText || !qualityIssuesText) {
+    return;
+  }
+  if (!report || typeof report !== "object") {
+    qualityReadyText.textContent = "-";
+    qualityRowsText.textContent = "-";
+    qualityClassText.textContent = "-";
+    qualityIssuesText.textContent = "-";
+    qualityReadyText.style.color = "#61584b";
+    return;
+  }
+
+  const ready = Boolean(report.readyForTraining);
+  const totals = report.totals || {};
+  const classCounts = report.distributions?.classCounts || {};
+  const classCountsAll = report.distributions?.classCountsAll || {};
+  const rates = report.rates || {};
+  const lowCount = Number(classCounts[0] || 0);
+  const mediumCount = Number(classCounts[1] || 0);
+  const highCount = Number(classCounts[2] || 0);
+  const lowAll = Number(classCountsAll[0] || 0);
+  const mediumAll = Number(classCountsAll[1] || 0);
+  const highAll = Number(classCountsAll[2] || 0);
+  const responseRatePct = Math.round(Number(rates.responseRate || 0) * 100);
+  const disagreementRatePct = Math.round(Number(rates.disagreementRate || 0) * 100);
+  const blocking = Array.isArray(report.blockingIssues) ? report.blockingIssues : [];
+  const warnings = Array.isArray(report.warnings) ? report.warnings : [];
+  const notes = [
+    ...blocking.map((line) => `BLOCK: ${line}`),
+    ...warnings.map((line) => `WARN: ${line}`)
+  ];
+
+  qualityReadyText.textContent = ready ? "Ready" : "Not ready";
+  qualityReadyText.style.color = ready ? "#256d5a" : "#9c2a17";
+  qualityRowsText.textContent = `${Number(totals.trainingRows || 0)} high-confidence rows (${Number(
+    totals.weakRows || 0
+  )} weak, ${Number(totals.debugRows || 0)} debug, ${Number(totals.allRows || 0)} total)`;
+  qualityClassText.textContent = `High-confidence L/M/H: ${lowCount}/${mediumCount}/${highCount} | All non-debug: ${lowAll}/${mediumAll}/${highAll} | Response ${responseRatePct}% | Disagreement ${disagreementRatePct}%`;
+  qualityIssuesText.textContent = notes.length ? notes.join(" | ") : "No blocking issues.";
+}
+
 async function send(type, payload = {}) {
   if (!hasExtensionRuntime()) {
     return { ok: false, error: "Extension context unavailable. Open this from the extension popup." };
@@ -94,6 +167,20 @@ async function refresh() {
   if (idleTimeoutSelect) {
     idleTimeoutSelect.value = String(data.idleTimeoutMin || 5);
   }
+  if (qualityMinTrainRowsSelect) {
+    setNumericSelectOptions(
+      qualityMinTrainRowsSelect,
+      data.qualityThresholdOptions?.minTrainRows,
+      data.qualityMinTrainRows
+    );
+  }
+  if (qualityMinClassRowsSelect) {
+    setNumericSelectOptions(
+      qualityMinClassRowsSelect,
+      data.qualityThresholdOptions?.minClassRows,
+      data.qualityMinClassRows
+    );
+  }
   debugActions.classList.toggle("hidden", !data.debugEnabled);
 
   domainText.textContent = data.domain || "-";
@@ -102,6 +189,7 @@ async function refresh() {
   riskText.textContent = data.riskLabel;
   cooldownText.textContent = data.cooldownActive ? formatCooldown(data.cooldownUntil) : "Inactive";
   counterStatusText.textContent = formatCounterStatus(data.countStatusReason, data.countStatusActive);
+  renderQualityReport(data.qualityReport);
 }
 
 trackingToggle?.addEventListener("change", async () => {
@@ -145,6 +233,21 @@ idleTimeoutSelect?.addEventListener("change", async () => {
   setStatus(`Idle timeout set to ${res.minutes} minutes.`);
   await refresh();
 });
+
+async function saveQualityThresholds() {
+  const minTrainRows = Number(qualityMinTrainRowsSelect?.value || 60);
+  const minClassRows = Number(qualityMinClassRowsSelect?.value || 10);
+  const res = await send("SET_QUALITY_THRESHOLDS", { minTrainRows, minClassRows });
+  if (!res?.ok) {
+    setStatus(res?.error || "Failed to set quality thresholds.", true);
+    return;
+  }
+  setStatus(`Quality gate updated: min ${res.minTrainRows} rows, min ${res.minClassRows} per class.`);
+  await refresh();
+}
+
+qualityMinTrainRowsSelect?.addEventListener("change", saveQualityThresholds);
+qualityMinClassRowsSelect?.addEventListener("change", saveQualityThresholds);
 
 simulateBtn?.addEventListener("click", async () => {
   const res = await send("DEBUG_SIMULATE_10_MIN");

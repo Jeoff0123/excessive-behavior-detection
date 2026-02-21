@@ -74,6 +74,10 @@ p {
   font-size: 13px;
 }
 
+#qualityIssuesText {
+  word-break: break-word;
+}
+
 .btn {
   width: 100%;
   border: 0;

@@ -1,0 +1,61 @@
+{
+  "input": "C:\\Users\\Jeoff\\Documents\\VSC Minas\\excessive-behavior-detection\\scripts\\_tmp_split\\train_split.csv",
+  "schema": "3",
+  "ruleVersion": "phase1_mode_v1",
+  "excludeDebug": true,
+  "labelPolicy": "all_weighted",
+  "weakWeight": 0.35,
+  "trainRatio": 0.8,
+  "enforceQuality": false,
+  "qualityGate": {
+    "readyForTraining": false,
+    "minRows": 1,
+    "minClassRows": 1,
+    "minResponseRate": 0,
+    "maxDisagreementRate": 1,
+    "totals": {
+      "allFilteredRows": 6,
+      "highConfidenceRows": 0,
+      "weakRows": 6,
+      "debugRows": 0,
+      "promptEligibleRows": 0,
+      "promptAnsweredRows": 0,
+      "comparablePromptRows": 0
+    },
+    "classCounts": {
+      "0": 0,
+      "1": 0,
+      "2": 0
+    },
+    "classCountsAll": {
+      "0": 6,
+      "1": 0,
+      "2": 0
+    },
+    "rates": {
+      "responseRate": 1,
+      "disagreementRate": 0
+    },
+    "blockingIssues": [
+      "Need at least 1 high-confidence rows (current: 0).",
+      "High-confidence class imbalance: need >=1 per class (Low=0, Medium=0, High=0)."
+    ],
+    "warnings": [
+      "6 weak-confidence rows available for weighted training.",
+      "No prompt-eligible sessions found."
+    ]
+  },
+  "totalInputRows": 6,
+  "totalFilteredRows": 6,
+  "totalSplitRows": 6,
+  "trainRows": 4,
+  "testRows": 2,
+  "trainTimeRange": {
+    "start": "2026-02-20T13:03:32.866Z",
+    "end": "2026-02-20T13:09:54.781Z"
+  },
+  "testTimeRange": {
+    "start": "2026-02-20T13:09:59.100Z",
+    "end": "2026-02-20T13:10:00.715Z"
+  }
+}

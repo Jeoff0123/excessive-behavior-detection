@@ -59,6 +59,9 @@ async function closeCurrentTab() {
 
 async function sendStage2Action(action, domain, sourceTabId, options = {}) {
   const closeOnSuccess = options.closeOnSuccess !== false;
+  const closeWhenResult =
+    typeof options.closeWhenResult === "function" ? options.closeWhenResult : null;
+  const closeDelayMs = Math.max(0, Number(options.closeDelayMs || 0));
   const response = await chrome.runtime.sendMessage({
     type: "STAGE2_NUDGE_ACTION",
     action,
@@ -72,11 +75,21 @@ async function sendStage2Action(action, domain, sourceTabId, options = {}) {
   }
 
   const result = response.result || (response.actionFailed ? "noop" : "success");
-  const tone = result === "noop" ? "info" : "success";
+  const tone =
+    result === "noop" || (result === "success" && response.navigationTarget === "none")
+      ? "info"
+      : "success";
   setStatus(response.message || "Action completed.", tone);
 
   if (closeOnSuccess && result === "success" && !response.actionFailed) {
+    const shouldClose = closeWhenResult ? Boolean(closeWhenResult(response)) : true;
+    if (!shouldClose) {
+      return response;
+    }
     try {
+      if (closeDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, closeDelayMs));
+      }
       await closeCurrentTab();
     } catch (_error) {
       // Keep the nudge page open if the tab cannot be closed.
@@ -157,7 +170,12 @@ function renderStage2Nudge(site, sourceTabId, promptTone, riskMode) {
   });
 
   snoozeBtn.addEventListener("click", () => {
-    runAction("snooze", { closeOnSuccess: true, lockOnSuccess: false }).catch(() => {
+    runAction("snooze", {
+      closeOnSuccess: true,
+      lockOnSuccess: false,
+      closeDelayMs: 250,
+      closeWhenResult: (response) => response?.navigationTarget !== "none"
+    }).catch(() => {
       // handled in runAction
     });
   });

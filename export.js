@@ -1,5 +1,5 @@
 const CSV_HEADER =
-  "sessionSchemaVersion,sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,revisitCountMode,stage,riskLevel,mode,ruleVersion,idleTimeoutMinUsed,provisionalLabel,provisionalScore,finalLabel,labelSource,labelConfidence,promptSkipped,stage2Choice,stage2ActionFailed,stage2FailReason,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop";
+  "sessionSchemaVersion,sessionId,domain,startTime,endTime,endReason,activeTimeSec,scrollCount,tabSwitchCount,revisitCount,revisitCountMode,stage,riskLevel,mode,ruleVersion,isDebugRow,debugSources,idleTimeoutMinUsed,provisionalLabel,provisionalScore,finalLabel,labelSource,labelConfidence,promptSkipped,stage2Choice,stage2ActionFailed,stage2FailReason,snoozeMinutes,breakTriggered,breakDurationSec,q1LongerThanIntended,q2HardToStop";
 
 function csvEscape(value) {
   if (value === null || value === undefined) {
@@ -30,6 +30,8 @@ export function exportSessionsCsv(sessions) {
       s.riskLevel,
       s.mode || "default",
       s.ruleVersion || "phase1_legacy",
+      s.isDebugRow === true,
+      Array.isArray(s.debugSources) ? s.debugSources.join(";") : s.debugSources,
       s.idleTimeoutMinUsed,
       s.provisionalLabel,
       s.provisionalScore,

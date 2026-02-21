@@ -40,6 +40,7 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - `revisitCount` stores prior visits to the same domain on the same day (frequency-style)
   - export includes `revisitCountMode` and `sessionSchemaVersion` for dataset compatibility
   - export also includes `mode` and `ruleVersion` for dataset reproducibility
+  - debug-generated rows are tagged with `isDebugRow` and `debugSources`
 - Interventions:
   - Stage 1 notification once/domain/day
   - Stage 2 notification + blocked-page nudge
@@ -57,6 +58,13 @@ This tool is a digital well-being aid, not an enforcement or security control.
   - shown only for Medium/High risk (or `provisionalLabel >= Medium`)
   - shown once per session
   - sessions store `labelConfidence` (`pending_prompt`, `confirmed`, `adjusted`, `skipped`, `rule_only`) and `promptSkipped`
+- Dataset quality gate:
+  - popup shows automatic training readiness (`ready` / `not ready`)
+  - popup lets you tune `min training rows` and `min rows per class` thresholds
+  - training readiness uses high-confidence labels (`confirmed`/`adjusted`) as the primary training set
+  - includes class balance monitor (Low/Medium/High counts)
+  - includes response-rate and disagreement-rate checks for end-session self-reports
+  - includes blocking issues (mixed schema/rule versions, low rows, imbalance) and warnings (debug ratio, forced-end ratio, weak-label ratio)
 - Cooldown enforcement:
   - `tabs.onUpdated` redirect checks to `blocked.html`
 
@@ -98,3 +106,21 @@ Enable `Debug Mode` to reveal:
    - Open `prompt.html` rate flow and submit answers
    - Confirm cooldown still blocks until timer reaches zero
 7. Click `Export CSV` to verify records include prompt answers.
+
+## Time Split Safeguard Template
+
+Use this template before training to enforce a leak-safe time split, confidence-aware labels, and quality safeguards:
+
+```bash
+node scripts/time_split_guard.mjs --in sessions.csv --outDir ./splits --trainRatio 0.8 --schema 3 --rule phase1_mode_v1 --excludeDebug true --labelPolicy high_confidence --minRows 60 --minClassRows 10 --minResponseRate 0.4 --maxDisagreementRate 0.6 --enforceQuality true
+```
+
+Outputs:
+- `train_split.csv`
+- `test_split.csv`
+- `split_report.json`
+
+Options:
+- `--labelPolicy high_confidence` trains only on high-confidence rows (`labelConfidence` = `confirmed`/`adjusted`).
+- `--labelPolicy all_weighted --weakWeight 0.35` includes weak rows with lower `sampleWeight` in output CSVs.
+- `--enforceQuality true` blocks split generation if hard quality gates fail.

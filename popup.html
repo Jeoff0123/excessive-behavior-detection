@@ -53,6 +53,36 @@
       <p><strong>Counter status:</strong> <span id="counterStatusText">-</span></p>
     </section>
 
+    <section class="card">
+      <h2>Dataset Health</h2>
+      <div class="row space">
+        <label for="qualityMinTrainRowsSelect">Min training rows</label>
+        <select id="qualityMinTrainRowsSelect" class="select">
+          <option value="30">30</option>
+          <option value="40">40</option>
+          <option value="60">60</option>
+          <option value="80">80</option>
+          <option value="100">100</option>
+          <option value="120">120</option>
+        </select>
+      </div>
+      <div class="row space">
+        <label for="qualityMinClassRowsSelect">Min rows per class</label>
+        <select id="qualityMinClassRowsSelect" class="select">
+          <option value="5">5</option>
+          <option value="8">8</option>
+          <option value="10">10</option>
+          <option value="12">12</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+        </select>
+      </div>
+      <p><strong>Training readiness:</strong> <span id="qualityReadyText">-</span></p>
+      <p><strong>Rows:</strong> <span id="qualityRowsText">-</span></p>
+      <p><strong>Class balance:</strong> <span id="qualityClassText">-</span></p>
+      <p><strong>Quality notes:</strong> <span id="qualityIssuesText">-</span></p>
+    </section>
+
     <section id="debugActions" class="card hidden">
       <h2>DEBUG</h2>
       <button id="simulateBtn" class="btn">DEBUG Simulate +10 min</button>

@@ -31,6 +31,15 @@ const SNOOZE_WINDOW_MS = 60 * 60 * 1000;
 const BREAK_RETURN_WINDOW_MS = 10 * 60 * 1000;
 const SESSION_SCHEMA_VERSION = 3;
 const END_REASON_IDLE = "idle_timeout";
+const QUALITY_DEFAULT_MIN_TRAIN_ROWS = 60;
+const QUALITY_DEFAULT_MIN_CLASS_ROWS = 10;
+const QUALITY_MIN_TRAIN_ROWS_OPTIONS = [30, 40, 60, 80, 100, 120];
+const QUALITY_MIN_CLASS_ROWS_OPTIONS = [5, 8, 10, 12, 15, 20];
+const QUALITY_MAX_DEBUG_RATIO = 0.15;
+const QUALITY_MAX_FORCED_END_RATIO = 0.85;
+const QUALITY_MIN_RESPONSE_RATE = 0.4;
+const QUALITY_MAX_DISAGREEMENT_RATE = 0.6;
+const QUALITY_MIN_DISAGREEMENT_ROWS = 10;
 const BADGE_OFF_COLOR = "#6b7280";
 const BADGE_COLOR_BY_STAGE = {
   0: "#64748b",
@@ -76,6 +85,301 @@ function getActiveMode(state) {
   return sanitizeMode(state?.mode);
 }
 
+function toFiniteNumber(value, fallback = null) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function parseRiskLabel(value) {
+  const n = toFiniteNumber(value, null);
+  if (n === 0 || n === 1 || n === 2) {
+    return n;
+  }
+  return null;
+}
+
+function parseBoolean(value) {
+  if (value === true || value === false) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if (lower === "true") {
+      return true;
+    }
+    if (lower === "false") {
+      return false;
+    }
+  }
+  return false;
+}
+
+function parseLikert1to5(value) {
+  const n = Number(value);
+  if (Number.isInteger(n) && n >= 1 && n <= 5) {
+    return n;
+  }
+  return null;
+}
+
+function getConfidenceTier(value) {
+  const confidence = String(value || "").trim().toLowerCase();
+  if (confidence === "confirmed" || confidence === "adjusted") {
+    return "high";
+  }
+  return "weak";
+}
+
+function isPromptEligibleSessionRow(row) {
+  const endReason = String(row?.endReason || "");
+  const endedNaturally =
+    endReason === "tab_closed" || endReason === END_REASON_IDLE || endReason === "idle_5min";
+  const riskLevel = parseRiskLabel(row?.riskLevel);
+  const provisionalLabel = parseRiskLabel(row?.provisionalLabel);
+  const mediumOrHigher =
+    (riskLevel !== null && riskLevel >= MEDIUM) ||
+    (provisionalLabel !== null && provisionalLabel >= MEDIUM);
+  return endedNaturally && mediumOrHigher;
+}
+
+function isPromptMeaningfullyAnswered(row) {
+  const q1 = String(row?.q1LongerThanIntended || "").trim().toLowerCase();
+  const q2 = parseLikert1to5(row?.q2HardToStop);
+  const skipped = parseBoolean(row?.promptSkipped) || q1 === "skip";
+  const hasResponse = q1 === "yes" || q1 === "no" || q2 !== null;
+  return hasResponse && !skipped;
+}
+
+function normalizeDebugSources(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((v) => String(v || "").trim()).filter(Boolean);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw
+      .split(/[;,]/)
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function dedupeStrings(values) {
+  return Array.from(new Set(values.map((v) => String(v || "").trim()).filter(Boolean)));
+}
+
+function isDebugSessionRow(session) {
+  return parseBoolean(session?.isDebugRow) || normalizeDebugSources(session?.debugSources).length > 0;
+}
+
+function buildDataQualityReport(sessions, qualityConfig = {}) {
+  const minTrainRows = sanitizeQualityMinTrainRows(qualityConfig.minTrainRows);
+  const minClassRows = sanitizeQualityMinClassRows(qualityConfig.minClassRows);
+  const all = Array.isArray(sessions) ? sessions : [];
+  const schemaCounts = {};
+  const ruleVersionCounts = {};
+  const modeCounts = {};
+  const endReasonCounts = {};
+  const classCountsAll = { 0: 0, 1: 0, 2: 0 };
+  const classCounts = { 0: 0, 1: 0, 2: 0 };
+  const trainingRows = [];
+  const weakRows = [];
+  const debugRows = [];
+  let promptEligibleCount = 0;
+  let promptAnsweredCount = 0;
+  let comparablePromptRows = 0;
+  let disagreementCount = 0;
+  let promptValidatedCount = 0;
+  let forcedEndCount = 0;
+
+  for (const row of all) {
+    const schemaVersion = String(row?.sessionSchemaVersion ?? 1);
+    const ruleVersion = String(row?.ruleVersion || "phase1_legacy");
+    const mode = String(row?.mode || "default");
+    const endReason = String(row?.endReason || "unknown");
+
+    schemaCounts[schemaVersion] = (schemaCounts[schemaVersion] || 0) + 1;
+    ruleVersionCounts[ruleVersion] = (ruleVersionCounts[ruleVersion] || 0) + 1;
+    modeCounts[mode] = (modeCounts[mode] || 0) + 1;
+    endReasonCounts[endReason] = (endReasonCounts[endReason] || 0) + 1;
+
+    if (isDebugSessionRow(row)) {
+      debugRows.push(row);
+      continue;
+    }
+
+    const label = parseRiskLabel(row?.finalLabel);
+    if (label !== null) {
+      classCountsAll[label] += 1;
+    }
+
+    const confidenceTier = getConfidenceTier(row?.labelConfidence);
+    if (confidenceTier === "high") {
+      trainingRows.push(row);
+      if (label !== null) {
+        classCounts[label] += 1;
+      }
+    } else {
+      weakRows.push(row);
+    }
+
+    const confidence = String(row?.labelConfidence || "").toLowerCase();
+    if (confidence === "confirmed" || confidence === "adjusted") {
+      promptValidatedCount += 1;
+    }
+
+    if (endReason === "forced_end") {
+      forcedEndCount += 1;
+    }
+
+    if (isPromptEligibleSessionRow(row)) {
+      promptEligibleCount += 1;
+      if (isPromptMeaningfullyAnswered(row)) {
+        promptAnsweredCount += 1;
+      }
+    }
+
+    if (isPromptMeaningfullyAnswered(row)) {
+      const provisionalLabel = parseRiskLabel(row?.provisionalLabel);
+      const finalLabel = parseRiskLabel(row?.finalLabel);
+      if (provisionalLabel !== null && finalLabel !== null) {
+        comparablePromptRows += 1;
+        if (provisionalLabel !== finalLabel) {
+          disagreementCount += 1;
+        }
+      }
+    }
+  }
+
+  const trainingCount = trainingRows.length;
+  const weakCount = weakRows.length;
+  const debugCount = debugRows.length;
+  const totalCount = all.length;
+  const nonDebugCount = trainingCount + weakCount;
+  const debugRatio = totalCount > 0 ? debugCount / totalCount : 0;
+  const forcedEndRatio = nonDebugCount > 0 ? forcedEndCount / nonDebugCount : 0;
+  const responseRate = promptEligibleCount > 0 ? promptAnsweredCount / promptEligibleCount : 1;
+  const disagreementRate =
+    comparablePromptRows > 0 ? disagreementCount / comparablePromptRows : 0;
+
+  const schemaVariants = Object.keys(schemaCounts);
+  const ruleVariants = Object.keys(ruleVersionCounts);
+  const minClassCount = Math.min(classCounts[0], classCounts[1], classCounts[2]);
+
+  const blockingIssues = [];
+  const warnings = [];
+
+  if (trainingCount < minTrainRows) {
+    blockingIssues.push(
+      `Need at least ${minTrainRows} high-confidence non-debug sessions (current: ${trainingCount}).`
+    );
+  }
+  if (schemaVariants.length > 1) {
+    blockingIssues.push(`Mixed session schema versions detected: ${schemaVariants.join(", ")}.`);
+  }
+  if (ruleVariants.length > 1) {
+    blockingIssues.push(`Mixed rule versions detected: ${ruleVariants.join(", ")}.`);
+  }
+  if (minClassCount < minClassRows) {
+    blockingIssues.push(
+      `High-confidence class imbalance is high. Need >=${minClassRows} per class (Low=${classCounts[0]}, Medium=${classCounts[1]}, High=${classCounts[2]}).`
+    );
+  }
+  if (promptEligibleCount > 0 && responseRate < QUALITY_MIN_RESPONSE_RATE) {
+    blockingIssues.push(
+      `Prompt response rate is low (${Math.round(
+        responseRate * 100
+      )}%). Need at least ${Math.round(QUALITY_MIN_RESPONSE_RATE * 100)}% of eligible sessions answered.`
+    );
+  }
+  if (
+    comparablePromptRows >= QUALITY_MIN_DISAGREEMENT_ROWS &&
+    disagreementRate > QUALITY_MAX_DISAGREEMENT_RATE
+  ) {
+    blockingIssues.push(
+      `Prompt disagreement is high (${Math.round(
+        disagreementRate * 100
+      )}%). Keep <= ${Math.round(
+        QUALITY_MAX_DISAGREEMENT_RATE * 100
+      )}% to reduce noisy labels.`
+    );
+  }
+
+  if (debugRatio > QUALITY_MAX_DEBUG_RATIO) {
+    warnings.push(
+      `Debug rows are ${Math.round(debugRatio * 100)}% of dataset (recommended <= ${Math.round(
+        QUALITY_MAX_DEBUG_RATIO * 100
+      )}%).`
+    );
+  }
+  if (forcedEndRatio > QUALITY_MAX_FORCED_END_RATIO) {
+    warnings.push(
+      `Forced-end sessions are ${Math.round(
+        forcedEndRatio * 100
+      )}% of non-debug rows; prefer more idle/tab-closed endings.`
+    );
+  }
+  if (promptValidatedCount === 0) {
+    warnings.push("No prompt-validated labels yet (confirmed/adjusted = 0).");
+  }
+  if (weakCount > 0) {
+    warnings.push(
+      `${weakCount} weak-confidence rows detected (rule_only/skipped/pending). Use weighted training if included.`
+    );
+  }
+  if (promptEligibleCount === 0) {
+    warnings.push("No prompt-eligible sessions yet (Medium/High + natural end).");
+  } else if (comparablePromptRows < QUALITY_MIN_DISAGREEMENT_ROWS) {
+    warnings.push(
+      `Only ${comparablePromptRows} comparable prompt rows so far; disagreement monitoring stabilizes at ${QUALITY_MIN_DISAGREEMENT_ROWS}+ rows.`
+    );
+  }
+
+  return {
+    generatedAt: Date.now(),
+    readyForTraining: blockingIssues.length === 0,
+    totals: {
+      allRows: totalCount,
+      nonDebugRows: nonDebugCount,
+      trainingRows: trainingCount,
+      weakRows: weakCount,
+      debugRows: debugCount,
+      promptEligibleRows: promptEligibleCount,
+      promptAnsweredRows: promptAnsweredCount,
+      comparablePromptRows,
+      promptValidatedRows: promptValidatedCount
+    },
+    distributions: {
+      classCounts,
+      classCountsAll,
+      schemaCounts,
+      ruleVersionCounts,
+      modeCounts,
+      endReasonCounts,
+      confidenceCounts: {
+        high: trainingCount,
+        weak: weakCount
+      }
+    },
+    rates: {
+      debugRatio,
+      forcedEndRatio,
+      responseRate,
+      disagreementRate
+    },
+    thresholds: {
+      minTrainRows,
+      minClassRows,
+      minResponseRate: QUALITY_MIN_RESPONSE_RATE,
+      maxDisagreementRate: QUALITY_MAX_DISAGREEMENT_RATE,
+      minDisagreementRows: QUALITY_MIN_DISAGREEMENT_ROWS,
+      maxDebugRatio: QUALITY_MAX_DEBUG_RATIO,
+      maxForcedEndRatio: QUALITY_MAX_FORCED_END_RATIO
+    },
+    blockingIssues,
+    warnings
+  };
+}
+
 function makeSessionId() {
   if (globalThis.crypto?.randomUUID) {
     return crypto.randomUUID();
@@ -89,6 +393,29 @@ function sanitizeIdleTimeoutMin(value) {
     return asNumber;
   }
   return DEFAULT_IDLE_TIMEOUT_MIN;
+}
+
+function sanitizeQualityMinTrainRows(value) {
+  const asNumber = Number(value);
+  if (QUALITY_MIN_TRAIN_ROWS_OPTIONS.includes(asNumber)) {
+    return asNumber;
+  }
+  return QUALITY_DEFAULT_MIN_TRAIN_ROWS;
+}
+
+function sanitizeQualityMinClassRows(value) {
+  const asNumber = Number(value);
+  if (QUALITY_MIN_CLASS_ROWS_OPTIONS.includes(asNumber)) {
+    return asNumber;
+  }
+  return QUALITY_DEFAULT_MIN_CLASS_ROWS;
+}
+
+function getQualityConfig(state) {
+  return {
+    minTrainRows: sanitizeQualityMinTrainRows(state?.qualityMinTrainRows),
+    minClassRows: sanitizeQualityMinClassRows(state?.qualityMinClassRows)
+  };
 }
 
 function getIdleTimeoutMs(state) {
@@ -195,6 +522,33 @@ function findActiveBlockForDomain(cooldowns, domain, now = Date.now()) {
     }
   }
   return matched;
+}
+
+function tabMatchesDomain(tab, domain) {
+  const tabDomain = getDomain(tab?.url || "");
+  if (!tabDomain) {
+    return false;
+  }
+  return matchBlockedDomain(tabDomain, domain) || matchBlockedDomain(domain, tabDomain);
+}
+
+async function focusTabById(tabId) {
+  if (!tabId) {
+    return null;
+  }
+  try {
+    const updated = await chrome.tabs.update(tabId, { active: true });
+    if (Number.isFinite(updated?.windowId)) {
+      try {
+        await chrome.windows.update(updated.windowId, { focused: true });
+      } catch (_error) {
+        // Focus fallback is best-effort only.
+      }
+    }
+    return updated || null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 async function blockSite(domain, durationMs = DEFAULT_COOLDOWN_MS) {
@@ -496,6 +850,21 @@ async function persistCurrentSession() {
   await patchState({ [STORAGE_KEYS.currentSessionState]: currentSession });
 }
 
+async function markCurrentSessionDebug(debugSource, domain = null) {
+  if (!currentSession || !debugSource) {
+    return false;
+  }
+  if (domain && currentSession.domain !== domain) {
+    return false;
+  }
+  const existing = normalizeDebugSources(currentSession.debugSources);
+  const merged = dedupeStrings([...existing, debugSource]);
+  currentSession.debugTouched = true;
+  currentSession.debugSources = merged;
+  await persistCurrentSession();
+  return true;
+}
+
 async function startSessionFromTab(tab) {
   if (!tab || !tab.id || !isTrackableUrl(tab.url || "")) {
     return;
@@ -542,7 +911,9 @@ async function startSessionFromTab(tab) {
     awaitingReturnAfterBreak: false,
     breakCooldownUntil: null,
     breakReturnDeadline: null,
-    promptShown: false
+    promptShown: false,
+    debugTouched: false,
+    debugSources: []
   };
 
   await patchState({
@@ -664,7 +1035,7 @@ async function openSessionPrompt(sessionId) {
   await chrome.tabs.create({ url });
 }
 
-async function endSession(endReason) {
+async function endSession(endReason, options = {}) {
   if (!currentSession) {
     return null;
   }
@@ -693,6 +1064,16 @@ async function endSession(endReason) {
       mode
     );
 
+    const inlineDebugSources = normalizeDebugSources(currentSession.debugSources);
+    const optionDebugSource =
+      typeof options?.debugSource === "string" && options.debugSource.trim()
+        ? options.debugSource.trim()
+        : null;
+    const debugSources = dedupeStrings(
+      optionDebugSource ? [...inlineDebugSources, optionDebugSource] : inlineDebugSources
+    );
+    const isDebugRow = Boolean(currentSession.debugTouched) || debugSources.length > 0;
+
     const finalized = {
       sessionSchemaVersion: SESSION_SCHEMA_VERSION,
       sessionId: currentSession.sessionId,
@@ -711,6 +1092,8 @@ async function endSession(endReason) {
       riskLevel,
       mode,
       ruleVersion: RULE_VERSION,
+      isDebugRow,
+      debugSources,
       idleTimeoutMinUsed: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
       provisionalLabel: provisional.provisionalLabel,
       provisionalScore: provisional.provisionalScore,
@@ -865,6 +1248,8 @@ async function getPopupState() {
   const state = await getState();
   const didReset = ensureDailyState(state);
   const now = Date.now();
+  const qualityConfig = getQualityConfig(state);
+  const qualityReport = buildDataQualityReport(state.sessions, qualityConfig);
 
   const tab = await getActiveTab();
   const domain = tab?.url ? getDomain(tab.url) : null;
@@ -902,6 +1287,13 @@ async function getPopupState() {
     cooldownUntil,
     countStatusActive: countStatus.active,
     countStatusReason: countStatus.reason,
+    qualityMinTrainRows: qualityConfig.minTrainRows,
+    qualityMinClassRows: qualityConfig.minClassRows,
+    qualityThresholdOptions: {
+      minTrainRows: QUALITY_MIN_TRAIN_ROWS_OPTIONS,
+      minClassRows: QUALITY_MIN_CLASS_ROWS_OPTIONS
+    },
+    qualityReport,
     sessionActive: Boolean(currentSession),
     currentSessionId: currentSession?.sessionId || null
   };
@@ -946,6 +1338,8 @@ async function initialize() {
     [STORAGE_KEYS.debugEnabled]: state.debugEnabled,
     [STORAGE_KEYS.mode]: getActiveMode(state),
     [STORAGE_KEYS.idleTimeoutMin]: sanitizeIdleTimeoutMin(state.idleTimeoutMin),
+    [STORAGE_KEYS.qualityMinTrainRows]: sanitizeQualityMinTrainRows(state.qualityMinTrainRows),
+    [STORAGE_KEYS.qualityMinClassRows]: sanitizeQualityMinClassRows(state.qualityMinClassRows),
     [STORAGE_KEYS.sessions]: state.sessions,
     [STORAGE_KEYS.domainTotals]: state.domainTotals,
     [STORAGE_KEYS.visitedDomainsToday]: state.visitedDomainsToday,
@@ -964,7 +1358,7 @@ async function initialize() {
 
   if (!currentSession && state.trackingEnabled) {
     const tab = await getActiveTab();
-    if (tab?.id && isTrackableUrl(tab.url || "")) {
+    if (tab?.id && isTrackableUrl(tab?.url || "")) {
       await startSessionFromTab(tab);
     }
   }
@@ -1075,6 +1469,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    if (message?.type === "GET_DATA_QUALITY_REPORT") {
+      const state = await getState();
+      sendResponse({ ok: true, report: buildDataQualityReport(state.sessions, getQualityConfig(state)) });
+      return;
+    }
+
     if (message?.type === "SET_TRACKING") {
       const enabled = Boolean(message.enabled);
       await patchState({ [STORAGE_KEYS.trackingEnabled]: enabled });
@@ -1097,6 +1497,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const minutes = sanitizeIdleTimeoutMin(message.minutes);
       await patchState({ [STORAGE_KEYS.idleTimeoutMin]: minutes });
       sendResponse({ ok: true, minutes });
+      return;
+    }
+
+    if (message?.type === "SET_QUALITY_THRESHOLDS") {
+      const minTrainRows = sanitizeQualityMinTrainRows(message.minTrainRows);
+      const minClassRows = sanitizeQualityMinClassRows(message.minClassRows);
+      await patchState({
+        [STORAGE_KEYS.qualityMinTrainRows]: minTrainRows,
+        [STORAGE_KEYS.qualityMinClassRows]: minClassRows
+      });
+      sendResponse({ ok: true, minTrainRows, minClassRows });
       return;
     }
 
@@ -1142,6 +1553,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         getStage(afterSec, mode),
         mode
       );
+      await markCurrentSessionDebug("debug_simulate_10_min", domain);
 
       await patchState({
         [STORAGE_KEYS.domainTotals]: state.domainTotals,
@@ -1162,7 +1574,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse({ ok: false, error: "Debug mode is disabled." });
         return;
       }
-      await endSession("forced_end");
+      await endSession("forced_end", { debugSource: "debug_end_session" });
       await updateActionBadge();
       sendResponse({ ok: true });
       return;
@@ -1195,6 +1607,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         [STORAGE_KEYS.stageNotified]: state.stageNotified,
         [STORAGE_KEYS.lastResetDate]: state.lastResetDate
       });
+      await markCurrentSessionDebug("debug_clear_today_domain", domain);
 
       await updateActionBadge(state);
       sendResponse({ ok: true, domain });
@@ -1376,6 +1789,67 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const snoozeDecision = await applySnoozeWithCap(domain, snoozeMinutes);
         const actionFailed = !snoozeDecision.allowed;
         const failReason = actionFailed ? "snooze_cap_reached" : null;
+        let navigationTarget = "none";
+        let navigationTabId = 0;
+
+        if (!actionFailed) {
+          let targetSourceTabId = sourceTabId;
+          if (targetSourceTabId && senderTabId && targetSourceTabId === senderTabId) {
+            targetSourceTabId = 0;
+          }
+          if (!targetSourceTabId && currentSession?.domain === domain && currentSession.tabId !== senderTabId) {
+            targetSourceTabId = currentSession.tabId;
+          }
+
+          if (targetSourceTabId) {
+            try {
+              const sourceTab = await chrome.tabs.get(targetSourceTabId);
+              if (tabMatchesDomain(sourceTab, domain)) {
+                const focused = await focusTabById(targetSourceTabId);
+                if (focused?.id) {
+                  navigationTarget = "source_tab";
+                  navigationTabId = focused.id;
+                }
+              }
+            } catch (_error) {
+              // handled by fallbacks
+            }
+          }
+
+          if (navigationTarget === "none") {
+            try {
+              const allTabs = await chrome.tabs.query({});
+              const matched = allTabs.find(
+                (tab) =>
+                  Number(tab?.id || 0) !== Number(senderTabId || 0) &&
+                  tabMatchesDomain(tab, domain)
+              );
+              if (matched?.id) {
+                const focused = await focusTabById(matched.id);
+                if (focused?.id) {
+                  navigationTarget = "matched_domain_tab";
+                  navigationTabId = focused.id;
+                }
+              }
+            } catch (_error) {
+              // handled by fallbacks
+            }
+          }
+
+          if (navigationTarget === "none") {
+            try {
+              const fallbackUrl = `https://${domain}`;
+              const created = await chrome.tabs.create({ url: fallbackUrl, active: true });
+              if (created?.id) {
+                navigationTarget = "new_domain_tab";
+                navigationTabId = created.id;
+              }
+            } catch (_error) {
+              // keep none
+            }
+          }
+        }
+
         if (currentSession && currentSession.domain === domain) {
           currentSession.stage2Choice = "snooze";
           currentSession.stage2ActionFailed = actionFailed;
@@ -1394,7 +1868,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             actionFailed: true,
             failReason,
             snoozeCount: snoozeDecision.count,
-            maxSnoozesPerHour: SNOOZE_LIMIT_PER_HOUR
+            maxSnoozesPerHour: SNOOZE_LIMIT_PER_HOUR,
+            navigationTarget: "none",
+            navigationTabId: null
           });
           return;
         }
@@ -1403,14 +1879,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           snoozeDecision.count >= 2
             ? ` (Snooze ${snoozeDecision.count}/${SNOOZE_LIMIT_PER_HOUR} this hour.)`
             : "";
+        const navigationHintByTarget = {
+          source_tab: " Returning to your previous tab.",
+          matched_domain_tab: " Returning to another open tab on this domain.",
+          new_domain_tab: " Opened a new tab for this domain.",
+          none: " Could not auto-return; you can continue manually."
+        };
         sendResponse({
           ok: true,
           result: "success",
-          message: `Snoozed for ${snoozeMinutes} minutes.${escalationHint}`,
+          message: `Snoozed for ${snoozeMinutes} minutes.${escalationHint}${navigationHintByTarget[navigationTarget] || ""}`,
           actionFailed: false,
           failReason: null,
           snoozeCount: snoozeDecision.count,
-          maxSnoozesPerHour: SNOOZE_LIMIT_PER_HOUR
+          maxSnoozesPerHour: SNOOZE_LIMIT_PER_HOUR,
+          navigationTarget,
+          navigationTabId: navigationTabId || null,
+          sourceTabUnavailable: navigationTarget === "none"
         });
         return;
       }

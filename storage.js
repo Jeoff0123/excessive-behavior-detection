@@ -5,6 +5,8 @@ export const STORAGE_KEYS = {
   debugEnabled: "debugEnabled",
   mode: "mode",
   idleTimeoutMin: "idleTimeoutMin",
+  qualityMinTrainRows: "qualityMinTrainRows",
+  qualityMinClassRows: "qualityMinClassRows",
   sessions: "sessions",
   domainTotals: "domainTotals",
   visitedDomainsToday: "visitedDomainsToday",
@@ -15,6 +17,25 @@ export const STORAGE_KEYS = {
   currentSessionState: "currentSessionState",
   stageNotified: "stageNotified"
 };
+
+const DEFAULT_QUALITY_MIN_TRAIN_ROWS = 60;
+const DEFAULT_QUALITY_MIN_CLASS_ROWS = 10;
+
+function sanitizeQualityMinTrainRows(value) {
+  const n = Number(value);
+  if (Number.isInteger(n) && n >= 20 && n <= 300) {
+    return n;
+  }
+  return DEFAULT_QUALITY_MIN_TRAIN_ROWS;
+}
+
+function sanitizeQualityMinClassRows(value) {
+  const n = Number(value);
+  if (Number.isInteger(n) && n >= 3 && n <= 100) {
+    return n;
+  }
+  return DEFAULT_QUALITY_MIN_CLASS_ROWS;
+}
 
 export function localDateKey(timestamp = Date.now()) {
   const d = new Date(timestamp);
@@ -28,6 +49,8 @@ export function getDefaultState() {
     debugEnabled: false,
     mode: DEFAULT_MODE,
     idleTimeoutMin: 5,
+    qualityMinTrainRows: DEFAULT_QUALITY_MIN_TRAIN_ROWS,
+    qualityMinClassRows: DEFAULT_QUALITY_MIN_CLASS_ROWS,
     sessions: [],
     domainTotals: {},
     visitedDomainsToday: { dateKey: localDateKey(), domains: {} },
@@ -58,6 +81,8 @@ export async function getState() {
       stored[STORAGE_KEYS.idleTimeoutMin] > 0
         ? stored[STORAGE_KEYS.idleTimeoutMin]
         : defaults.idleTimeoutMin,
+    qualityMinTrainRows: sanitizeQualityMinTrainRows(stored[STORAGE_KEYS.qualityMinTrainRows]),
+    qualityMinClassRows: sanitizeQualityMinClassRows(stored[STORAGE_KEYS.qualityMinClassRows]),
     sessions: Array.isArray(stored[STORAGE_KEYS.sessions]) ? stored[STORAGE_KEYS.sessions] : defaults.sessions,
     domainTotals:
       stored[STORAGE_KEYS.domainTotals] && typeof stored[STORAGE_KEYS.domainTotals] === "object"

@@ -1,0 +1,19 @@
+{
+  "input": "c:\\Users\\Jeoff\\Downloads\\sessions_2026-02-20 (1).csv",
+  "schema": "3",
+  "ruleVersion": "phase1_mode_v1",
+  "excludeDebug": true,
+  "trainRatio": 0.8,
+  "totalInputRows": 48,
+  "totalFilteredRows": 8,
+  "trainRows": 6,
+  "testRows": 2,
+  "trainTimeRange": {
+    "start": "2026-02-20T13:03:32.866Z",
+    "end": "2026-02-20T13:10:00.715Z"
+  },
+  "testTimeRange": {
+    "start": "2026-02-20T13:10:01.710Z",
+    "end": "2026-02-20T13:10:07.031Z"
+  }
+}
